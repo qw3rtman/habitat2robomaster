@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 import pandas as pd
+from torchvision import transforms
 
 from pathlib import Path
 import argparse
@@ -22,10 +23,10 @@ from gym.spaces import Box, Dict, Discrete
 METRICS = ['distance_to_goal', 'success', 'spl']
 
 models = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
@@ -34,7 +35,7 @@ configs = {
 }
 
 class Rollout:
-    def __init__(self, input_type):
+    def __init__(self, input_type, model=None):
         c = Config()
 
         c.RESOLUTION       = 256
@@ -47,6 +48,10 @@ class Rollout:
         c.GOAL_SENSOR_UUID = 'pointgoal_with_gps_compass'
 
         c.freeze()
+
+        self.input_type = input_type
+        self.model = model
+        self.transform = transforms.ToTensor()
 
         self.env = Env(config=get_config(configs[c.INPUT_TYPE]))
         self.agent = PPOAgent(c)
@@ -69,8 +74,14 @@ class Rollout:
         while not self.env.episode_over:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
-            action = self.agent.act(observations)  # t
-            state = self.env.sim.get_agent_state() # t
+            if self.model: # custom network
+                action = {
+                    'action': self.model(self.transform(observations[self.input_type]).unsqueeze(dim=0)).detach().argmax().item(),
+                    'action_args': {}
+                }
+            else: # habitat network
+                action = self.agent.act(observations) # t
+            state = self.env.sim.get_agent_state()    # t
 
             position  = state.position
             rotation  = state.rotation.components
