@@ -23,10 +23,10 @@ from gym.spaces import Box, Dict, Discrete
 METRICS = ['distance_to_goal', 'success', 'spl']
 
 models = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
@@ -52,6 +52,7 @@ class Rollout:
         self.input_type = input_type
         self.model = model
         self.transform = transforms.ToTensor()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.env = Env(config=get_config(configs[c.INPUT_TYPE]))
         self.agent = PPOAgent(c)
@@ -75,8 +76,10 @@ class Rollout:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
             if self.model: # custom network
+                input = self.transform(observations[self.input_type]).unsqueeze(dim=0)
+                input = input.to(self.device)
                 action = {
-                    'action': self.model(self.transform(observations[self.input_type]).unsqueeze(dim=0)).detach().argmax().item(),
+                    'action': self.model(input).detach().argmax().item(),
                     'action_args': {}
                 }
             else: # habitat network
@@ -117,6 +120,7 @@ def rollout_episode(env):
     steps = list()
     for step in env.rollout():
         steps.append(step)
+        print('tick')
 
     return steps
 
