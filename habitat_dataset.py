@@ -13,6 +13,8 @@ import quaternion
 
 from utils import Wrap
 
+ACTIONS = torch.eye(5)
+
 
 def get_dataset(dataset_dir, batch_size=128, num_workers=4, **kwargs):
 
@@ -21,7 +23,7 @@ def get_dataset(dataset_dir, batch_size=128, num_workers=4, **kwargs):
         train_or_val = 'train' if is_train else 'val'
 
         for episode_dir in (Path(dataset_dir) / train_or_val).iterdir():
-            data.append(HabitatDataset(episode_dir, steps, gap))
+            data.append(HabitatDataset(episode_dir))
 
         data = torch.utils.data.ConcatDataset(data)
 
@@ -64,7 +66,7 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         rgb    = self.transform(Image.open(self.imgs[idx]))
         seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
-        action = self.actions[idx] # one-hot?
+        action = ACTIONS[self.actions[idx]].clone()
 
         # rgb, mapview, segmentation, action, debug
         return rgb, 0, seg, action, (self.start_position, self.start_rotation, self.end_position)
