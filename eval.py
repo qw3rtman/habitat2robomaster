@@ -17,6 +17,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--auto', action='store_true')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -37,7 +38,7 @@ if __name__ == '__main__':
             #img.show()
             #time.sleep(0.25)
             cv2.imshow('rgb', step['rgb'])
-            cv2.waitKey(1)
+            cv2.waitKey(1 if args.auto else 0)
 
         print(f'[!] finish ep {ep:04}')
         for m, v in env.env.get_metrics().items():
