@@ -22,10 +22,10 @@ from gym.spaces import Box, Dict, Discrete
 METRICS = ['distance_to_goal', 'success', 'spl']
 
 models = {
-    # 'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    # 'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {

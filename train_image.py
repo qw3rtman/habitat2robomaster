@@ -129,7 +129,6 @@ if __name__ == '__main__':
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
-    parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Optimizer args.
@@ -138,8 +137,8 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size', 'dataset_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v1.0'
+    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v2.0'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -158,7 +157,6 @@ if __name__ == '__main__':
 
             'data_args': {
                 'dataset_dir': parsed.dataset_dir,
-                'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
                 },
 
