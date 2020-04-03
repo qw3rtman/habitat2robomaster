@@ -41,6 +41,7 @@ c = Config()
 c.RESOLUTION       = 256
 c.HIDDEN_SIZE      = 512
 c.RANDOM_SEED      = 7
+c.PTH_GPU_ID = 0
 
 c.INPUT_TYPE       = parsed.input_type
 c.MODEL_PATH       = models[c.INPUT_TYPE]
