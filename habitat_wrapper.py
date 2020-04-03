@@ -109,7 +109,11 @@ def rollout_episode(env):
 
     return steps
 
-def get_episode(env, episode_dir):
+def get_episode(env, episode_dir, evaluate=False):
+    if evaluate:
+        rollout_episode(env)
+        return
+
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
         steps = rollout_episode(env)
@@ -143,9 +147,11 @@ def get_episode(env, episode_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    # TODO: take model_path and config_path
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--evaluate', action='store_true')
     args = parser.parse_args()
 
     summary = defaultdict(float)
@@ -159,7 +165,7 @@ if __name__ == '__main__':
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir)
+        get_episode(env, episode_dir, args.evaluate)
 
         print(f'[!] finish ep {ep:03}')
         for m, v in env.env.get_metrics().items():

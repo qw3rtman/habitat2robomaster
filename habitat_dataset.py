@@ -80,4 +80,5 @@ if __name__ == '__main__':
     dataset = HabitatDataset(args.episode_dir)
     for rgb, _, seg, action, _ in dataset:
         cv2.imshow('rgb', cv2.cvtColor(np.uint8(transform_(rgb)), cv2.COLOR_RGB2BGR))
+        cv2.imshow('seg', np.float32(seg))
         cv2.waitKey(0)
