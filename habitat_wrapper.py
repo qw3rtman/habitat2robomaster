@@ -9,7 +9,6 @@ import argparse
 import time
 import shutil
 from collections import deque, defaultdict
-from operator import itemgetter
 import quaternion
 
 import habitat
@@ -113,13 +112,12 @@ def rollout_episode(env):
 def get_episode(env, episode_dir):
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
-        print('try!')
         steps = rollout_episode(env)
 
     stats = list()
     for i, step in enumerate(steps):
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
-        np.save(episode_dir / f'sem_{i:04}', step['semantic'])
+        np.save(episode_dir / f'seg_{i:04}', step['semantic'])
 
         stats.append({
             'step': step['step'],
@@ -135,13 +133,19 @@ def get_episode(env, episode_dir):
         })
 
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
-    pd.DataFrame([env.env.get_metrics()]).to_csv(episode_dir / 'metrics.csv', index=False)
+
+    info = env.env.get_metrics()
+    info['collisions'] = info['collisions']['count']
+    info['start_pos_x'], info['start_pos_y'], info['start_pos_z']                      = env.env.current_episode.start_position
+    info['start_rot_i'], info['start_rot_j'], info['start_rot_k'], info['start_rot_l'] = env.env.current_episode.start_rotation
+    info['end_pos_x'], info['end_pos_y'], info['end_pos_z']                            = env.env.current_episode.goals[0].position
+    pd.DataFrame([info]).to_csv(episode_dir / 'info.csv', index=False)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_type', choices=models.keys(), required=True)
-    parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--num_episodes', type=int, required=True)
+    parser.add_argument('--input_type', choices=models.keys(), required=True)
     args = parser.parse_args()
 
     summary = defaultdict(float)
