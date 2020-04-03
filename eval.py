@@ -3,11 +3,13 @@ from model import Network
 
 import argparse
 from collections import defaultdict
+import time
 
 import torch
 import cv2
 import pandas as pd
 from pathlib import Path
+from PIL import Image
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -23,12 +25,15 @@ if __name__ == '__main__':
     summary = defaultdict(float)
     summary['ep'] = 1
     if (args.model_path.parent / 'summary.csv').exists():
-        summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
+        summary = pd.read_csv(args.model_path.parent / 'summary.csv').iloc[0]
 
     env = Rollout(args.input_type, model=net)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
         steps = rollout_episode(env)
         for step in steps:
+            #img = Image.fromarray(step['rgb'])
+            #img.show()
+            #time.sleep(0.25)
             cv2.imshow('rgb', step['rgb'])
             cv2.waitKey(1)
 
