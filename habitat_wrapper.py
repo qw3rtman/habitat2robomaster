@@ -161,13 +161,13 @@ if __name__ == '__main__':
 
     env = Rollout(args.input_type)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
-        episode_dir = args.dataset_dir / f'{ep:03}'
+        episode_dir = args.dataset_dir / f'{ep:04}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
         get_episode(env, episode_dir, args.evaluate)
 
-        print(f'[!] finish ep {ep:03}')
+        print(f'[!] finish ep {ep:04}')
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
                 summary[m] += v
