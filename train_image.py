@@ -29,6 +29,7 @@ def train_or_eval(net, data, optim, is_train, config):
 
     for i, (rgb, _, _, action, _) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
+        action = action.to(config['device'])
         _action = net(rgb)
 
         loss = criterion(action, _action).mean(1)
@@ -138,7 +139,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v2.0'
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v2.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
