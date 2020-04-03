@@ -18,13 +18,15 @@ from habitat_baselines.agents.ppo_agents import PPOAgent
 from gym.spaces import Box, Dict, Discrete
 
 models = {
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/habitat2robomaster/rgb_test.yaml',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/habitat2robomaster/depth_test.yaml',
+    'rgb':   'rgb_test.yaml',
+    'depth': 'depth_test.yaml'
 }
 
 parser = argparse.ArgumentParser()
