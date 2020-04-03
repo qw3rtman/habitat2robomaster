@@ -31,7 +31,7 @@ class Network(ResnetBase):
         self.fc1 = nn.Linear(64, 1)
         self.fc2 = nn.Linear(64, 1)
 
-        self.softmax = nn.Softmax(dim=1)
+        self.softmax = nn.Softmax(dim=-1)
 
     # TODO: take start_pos, start_rot, end_pos
     def forward(self, x):
