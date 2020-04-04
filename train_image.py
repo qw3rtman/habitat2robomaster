@@ -12,7 +12,7 @@ import yaml
 
 from PIL import Image, ImageDraw
 
-from model import Network
+from model import ConditionalImitation
 from habitat_dataset import get_dataset
 
 def train_or_eval(net, data, optim, is_train, config):

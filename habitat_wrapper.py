@@ -28,10 +28,10 @@ jitter_threshold = {
 }
 
 models = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
@@ -85,10 +85,17 @@ class Rollout:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
             if self.model: # custom network
-                input = self.transform(observations[self.input_type]).unsqueeze(dim=0)
-                input = input.to(self.device)
+                meta = torch.cat([torch.Tensor([
+                    *self.env.current_episode.start_position,
+                    *self.env.current_episode.start_rotation,
+                    *self.env.current_episode.goals[0].position])])
+                rgb = self.transform(observations[self.input_type]).unsqueeze(dim=0)
+
+                meta = meta.to(self.device)
+                rgb = rgb.to(self.device)
+
                 action = {
-                    'action': self.model(input).detach().argmax().item(),
+                    'action': self.model((rgb, meta)).detach().argmax().item(),
                     'action_args': {}
                 }
             else: # habitat network

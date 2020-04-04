@@ -1,5 +1,5 @@
 from habitat_wrapper import Rollout, rollout_episode, models, METRICS
-from model import Network
+from model import DirectImitation, ConditionalImitation
 
 import argparse
 from collections import defaultdict
@@ -11,17 +11,25 @@ import pandas as pd
 from pathlib import Path
 from PIL import Image
 
+NETWORKS = ['direct', 'conditional']
+def _get_network(network):
+    if network == 'direct':
+        return DirectImitation()
+    elif network == 'conditional':
+        return ConditionalImitation()
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # TODO: take model_path and config_path
     parser.add_argument('--model_path', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--network', choices=NETWORKS, required=True)
     parser.add_argument('--auto', action='store_true')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    net = Network().to(device) # TODO: read config.yaml, pass in model_args
+    net = _get_network(args.network).to(device) # TODO: read config.yaml, pass in model_args
     print(device)
     net.load_state_dict(torch.load(args.model_path, map_location=device))
 
