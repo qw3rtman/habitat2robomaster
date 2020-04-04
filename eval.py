@@ -1,5 +1,5 @@
 from habitat_wrapper import Rollout, rollout_episode, models, METRICS
-from model import DirectImitation, ConditionalImitation
+from model import *
 
 import argparse
 from collections import defaultdict

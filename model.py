@@ -15,7 +15,7 @@ def spatial_softmax_base():
     )
 
 
-class DirectImitation(ResnetBase):
+class DirectImitation(ResnetBase): # v2.x
     def __init__(self, resnet_model='resnet34', **resnet_kwargs):
         resnet_kwargs['input_channel'] = resnet_kwargs.get('input_channel', 3)
 
@@ -44,7 +44,7 @@ class DirectImitation(ResnetBase):
         return self.softmax(self.fc2(self.fc1(self.extract(rgb)).squeeze()).squeeze())
 
 
-class ConditionalImitation(ResnetBase):
+class ConditionalImitation(ResnetBase): # 3.x
     def __init__(self, resnet_model='resnet34', **resnet_kwargs):
         resnet_kwargs['input_channel'] = resnet_kwargs.get('input_channel', 3)
 

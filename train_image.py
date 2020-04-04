@@ -12,7 +12,8 @@ import yaml
 
 from PIL import Image, ImageDraw
 
-from model import ConditionalImitation
+from model import *
+from eval import _get_network, NETWORKS
 from habitat_dataset import get_dataset
 
 def train_or_eval(net, data, optim, is_train, config):
@@ -32,7 +33,7 @@ def train_or_eval(net, data, optim, is_train, config):
         meta = meta.to(config['device'])
         action = action.to(config['device'])
 
-        _action = net(rgb, meta)
+        _action = net((rgb, meta))
 
         loss = criterion(action, _action).mean(1)
         loss_mean = loss.mean()
@@ -79,7 +80,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = Network().to(config['device'])
+    net = _get_network(config['network']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'])
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
@@ -123,6 +124,8 @@ def main(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--network', choices=NETWORKS, required=True)
+
     parser.add_argument('--max_epoch', type=int, default=50)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
@@ -150,6 +153,7 @@ if __name__ == '__main__':
             'run_name': run_name,
             'max_epoch': parsed.max_epoch,
             'checkpoint_dir': checkpoint_dir,
+            'network': parsed.network,
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
             'model_args': {
