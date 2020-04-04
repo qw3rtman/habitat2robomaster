@@ -22,6 +22,11 @@ from gym.spaces import Box, Dict, Discrete
 
 METRICS = ['distance_to_goal', 'success', 'spl']
 
+jitter_threshold = {
+    'rgb': 1e-2,
+    'depth': 7.5e-2
+}
+
 models = {
     'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
     'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
@@ -121,7 +126,8 @@ class Rollout:
                 print()
             """
 
-            if i > 10 and np.sqrt(dd_pos**2 + dd_rot**2) < 7.5e-2:
+            # measure velocity and jitter
+            if i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.input_type]):
                 print('STUCK')
                 if not self.evaluate:
                     break
@@ -151,8 +157,10 @@ def get_episode(env, episode_dir, evaluate=False):
 
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
-        #print('TRY AGAIN')
         steps = rollout_episode(env)
+        print('TRY AGAIN')
+        print(len(steps), bool(env.env.get_metrics()['success']))
+        print()
 
     stats = list()
     for i, step in enumerate(steps):
