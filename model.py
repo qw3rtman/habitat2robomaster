@@ -30,9 +30,9 @@ class Network(ResnetBase):
         
         self.fc1 = nn.Linear(64, 1)
         self.fc2 = nn.Linear(64, 2)
-        self.fc3 = nn.Linear(2, 1)
+        self.fc3 = nn.Linear(10, 5)
 
-        self.softmax = nn.Softmax(dim=0)
+        self.softmax = nn.Softmax(dim=1)
 
     # TODO: take start_pos, start_rot, end_pos
     def forward(self, rgb, meta):
@@ -42,6 +42,6 @@ class Network(ResnetBase):
         rgb = self.extract(rgb)
         rgb = self.fc1(rgb).squeeze()
         rgb = self.fc2(rgb)
-        x = self.fc3(rgb + meta.reshape(5, -1))
+        x = self.fc3(rgb.view((-1, 10)) + meta)
 
         return self.softmax(x)
