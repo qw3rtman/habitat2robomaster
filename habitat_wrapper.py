@@ -35,7 +35,7 @@ configs = {
 }
 
 class Rollout:
-    def __init__(self, input_type, model=None):
+    def __init__(self, input_type, evaluate=False, model=None):
         c = Config()
 
         c.RESOLUTION       = 256
@@ -54,6 +54,7 @@ class Rollout:
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        self.evaluate = evaluate
         self.env = Env(config=get_config(configs[c.INPUT_TYPE]))
         self.agent = PPOAgent(c)
 
@@ -107,11 +108,13 @@ class Rollout:
 
             if (i > 10 and np.max(d_pos) == 0 and np.max(d_rot) == 0):
                 print('STUCK')
-                break
+                if not self.evaluate:
+                    break
 
             if (i > 5 and np.min(d_col) == 1):
                 print('COLLIDE')
-                break
+                if not self.evaluate:
+                    break
 
             observations = self.env.step(action)
             i += 1
@@ -124,8 +127,8 @@ def rollout_episode(env):
 
     return steps
 
-def get_episode(env, episode_dir, evaluate=False):
-    if evaluate:
+def get_episode(env, episode_dir):
+    if self.evaluate:
         rollout_episode(env)
         return
 
@@ -174,13 +177,13 @@ if __name__ == '__main__':
     if (args.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(args.input_type)
+    env = Rollout(args.input_type, evaluate=args.evaluate)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
         episode_dir = args.dataset_dir / f'{ep:04}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir, args.evaluate)
+        get_episode(env, episode_dir)
 
         print(f'[!] finish ep {ep:04}')
         for m, v in env.env.get_metrics().items():

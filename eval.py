@@ -30,7 +30,7 @@ if __name__ == '__main__':
     if (args.model_path.parent / 'summary.csv').exists():
         summary = pd.read_csv(args.model_path.parent / 'summary.csv').iloc[0]
 
-    env = Rollout(args.input_type, model=net)
+    env = Rollout(args.input_type, evaluate=True, model=net)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
         steps = rollout_episode(env)
         for step in steps:
