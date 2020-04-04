@@ -1,0 +1,39 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.8.31
+    code_path: code/train_image.py
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    python_version: 3.7.6
+checkpoint_dir:
+  desc: null
+  value: /scratch/cluster/nimit/checkpoints/resnet34_0.0001_5e-05_128_v2.1
+data_args:
+  desc: null
+  value:
+    batch_size: 128
+    dataset_dir: /scratch/cluster/nimit/data/habitat/ppo_depth
+device:
+  desc: null
+  value: cuda
+max_epoch:
+  desc: null
+  value: 50
+model_args:
+  desc: null
+  value:
+    input_channel: 3
+    pretrained: false
+    resnet_model: resnet34
+optimizer_args:
+  desc: null
+  value:
+    lr: 0.0001
+    weight_decay: 5.0e-05
+run_name:
+  desc: null
+  value: resnet34_0.0001_5e-05_128_v2.1
