@@ -30,7 +30,7 @@ TASK:
 DATASET:
   TYPE: PointNav-v1
   SPLIT: train
-  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/habitat-test-scenes/v1/{split}/{split}.json.gz'
+  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
   SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
-  #DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/habitat-test-scenes/v1/{split}/{split}.json.gz'
+  #DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
   #SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
