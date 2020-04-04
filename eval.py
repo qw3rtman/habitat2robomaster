@@ -38,9 +38,9 @@ if __name__ == '__main__':
             #img.show()
             #time.sleep(0.25)
             print(i)
-            cv2.imshow('rgb', step['rgb'])
             print()
-            cv2.waitKey(1 if args.auto else 0)
+            cv2.imshow('rgb', step['rgb'])
+            cv2.waitKey(10 if args.auto else 0)
 
         print(f'[!] finish ep {ep:04}')
         for m, v in env.env.get_metrics().items():

@@ -68,6 +68,9 @@ class Rollout:
         d_rot = deque(maxlen=10)
         d_col = deque(maxlen=5)
 
+        p_d_pos = 0
+        p_d_rot = 0
+
         state = self.env.sim.get_agent_state()
         p_pos = state.position
         p_rot = state.rotation.components
@@ -106,21 +109,30 @@ class Rollout:
             d_rot.append(np.linalg.norm(rotation - p_rot))
             d_col.append(int(collision))
 
+            dd_pos = abs(p_d_pos - np.mean(d_pos))
+            dd_rot = abs(p_d_rot - np.mean(d_rot))
 
-            print('i = {}.'.format(i))
-            print('d_pos: {}'.format(np.max(d_pos)))
-            print('d_rot: {}'.format(np.max(d_rot)))
-            print('d_col: {}'.format(np.min(d_col)))
-            print()
-            if (i > 10 and np.max(d_pos) == 0 and np.max(d_rot) == 0):
-                #print('STUCK')
+            """
+            if i > 10:
+                print('i = {}.'.format(i))
+                print('dd_pos: {}'.format(dd_pos))
+                print('dd_rot: {}'.format(dd_rot))
+                print(np.sqrt(dd_pos**2 + dd_rot**2))
+                print()
+            """
+
+            if i > 10 and np.sqrt(dd_pos**2 + dd_rot**2) < 7.5e-2:
+                print('STUCK')
                 if not self.evaluate:
                     break
 
-            if (i > 5 and np.min(d_col) == 1):
+            if i > 5 and np.min(d_col) == 1:
                 #print('COLLIDE')
                 if not self.evaluate:
                     break
+
+            p_d_pos = np.mean(d_pos)
+            p_d_rot = np.mean(d_rot)
 
             observations = self.env.step(action)
             i += 1
