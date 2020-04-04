@@ -107,6 +107,7 @@ class Rollout:
             d_col.append(int(collision))
 
 
+            print('i = {}.'.format(i))
             print('d_pos: {}'.format(np.max(d_pos)))
             print('d_rot: {}'.format(np.max(d_rot)))
             print('d_col: {}'.format(np.min(d_col)))
