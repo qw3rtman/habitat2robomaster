@@ -27,10 +27,10 @@ def train_or_eval(net, data, optim, is_train, config):
     criterion = torch.nn.L1Loss(reduction='none')
     tick = time.time()
 
-    for i, (rgb, _, _, action, _) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
+    for i, (rgb, _, _, action, meta) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
-        _action = net(rgb)
+        _action = net(rgb, meta)
 
         loss = criterion(action, _action).mean(1)
         loss_mean = loss.mean()

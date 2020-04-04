@@ -29,17 +29,19 @@ class Network(ResnetBase):
                 #common.SpatialSoftmax(temperature))
         
         self.fc1 = nn.Linear(64, 1)
-        self.fc2 = nn.Linear(64, 1)
+        self.fc2 = nn.Linear(64, 2)
+        self.fc3 = nn.Linear(2, 1)
 
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(dim=0)
 
     # TODO: take start_pos, start_rot, end_pos
-    def forward(self, x):
-        x = self.normalize(x)
-        x = self.conv(x)
-        x = self.deconv(x)
+    def forward(self, rgb, meta):
+        rgb = self.normalize(rgb)
+        rgb = self.conv(rgb)
+        rgb = self.deconv(rgb)
+        rgb = self.extract(rgb)
+        rgb = self.fc1(rgb).squeeze()
+        rgb = self.fc2(rgb)
+        x = self.fc3(rgb + meta.reshape(5, -1))
 
-        return self.softmax(self.fc2(self.fc1(self.extract(x)).squeeze()).squeeze())
-
-if __name__ == '__main__':
-    net = Network(resnet_model='resnet34')
+        return self.softmax(x)

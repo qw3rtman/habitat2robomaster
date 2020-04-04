@@ -53,10 +53,10 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.actions = np.array(self.measurements['action'])
 
         self.info = pd.read_csv(episode_dir / 'info.csv').iloc[0]
-        self.start_position = np.array([itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info)])
+        self.start_position = torch.Tensor(itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info))
         # NOTE: really a quaternion
-        self.start_rotation = np.array([itemgetter('start_rot_i', 'start_rot_j', 'start_rot_k', 'start_rot_l')(self.info)])
-        self.end_position   = np.array([itemgetter('end_pos_x', 'end_pos_y', 'end_pos_z')(self.info)])
+        self.start_rotation = torch.Tensor(itemgetter('start_rot_i', 'start_rot_j', 'start_rot_k', 'start_rot_l')(self.info))
+        self.end_position   = torch.Tensor(itemgetter('end_pos_x', 'end_pos_y', 'end_pos_z')(self.info))
 
         self.transform  = transforms.ToTensor()
 
@@ -67,9 +67,10 @@ class HabitatDataset(torch.utils.data.Dataset):
         rgb    = self.transform(Image.open(self.imgs[idx]))
         seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = ACTIONS[self.actions[idx]].clone()
+        meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)
 
-        # rgb, mapview, segmentation, action, debug
-        return rgb, 0, seg, action, (self.start_position, self.start_rotation, self.end_position)
+        # rgb, mapview, segmentation, action, meta
+        return rgb, 0, seg, action, meta
 
 
 if __name__ == '__main__':
