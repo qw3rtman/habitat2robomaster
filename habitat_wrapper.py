@@ -106,13 +106,18 @@ class Rollout:
             d_rot.append(np.linalg.norm(rotation - p_rot))
             d_col.append(int(collision))
 
+
+            print('d_pos: {}'.format(np.max(d_pos)))
+            print('d_rot: {}'.format(np.max(d_rot)))
+            print('d_col: {}'.format(np.min(d_col)))
+            print()
             if (i > 10 and np.max(d_pos) == 0 and np.max(d_rot) == 0):
-                print('STUCK')
+                #print('STUCK')
                 if not self.evaluate:
                     break
 
             if (i > 5 and np.min(d_col) == 1):
-                print('COLLIDE')
+                #print('COLLIDE')
                 if not self.evaluate:
                     break
 
@@ -123,17 +128,17 @@ def rollout_episode(env):
     steps = list()
     for step in env.rollout():
         steps.append(step)
-        print('tick')
 
     return steps
 
-def get_episode(env, episode_dir):
-    if self.evaluate:
+def get_episode(env, episode_dir, evaluate=False):
+    if evaluate:
         rollout_episode(env)
         return
 
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
+        #print('TRY AGAIN')
         steps = rollout_episode(env)
 
     stats = list()
@@ -183,7 +188,7 @@ if __name__ == '__main__':
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir)
+        get_episode(env, episode_dir, args.evaluate)
 
         print(f'[!] finish ep {ep:04}')
         for m, v in env.env.get_metrics().items():
