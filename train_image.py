@@ -25,7 +25,7 @@ def train_or_eval(net, data, optim, is_train, config):
         net.eval()
 
     losses = list()
-    criterion = torch.nn.L1Loss(reduction='none')
+    criterion = torch.nn.BCEWithLogitsLoss() if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
     tick = time.time()
 
     for i, (rgb, _, _, action, meta) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
@@ -33,9 +33,9 @@ def train_or_eval(net, data, optim, is_train, config):
         meta = meta.to(config['device'])
         action = action.to(config['device'])
 
-        _action = net((rgb, meta))
+        _action = net((rgb,) if 'direct' in config['network'] else (rgb, meta))
 
-        loss = criterion(action, _action).mean(1)
+        loss = criterion(_action, action).mean(1)
         loss_mean = loss.mean()
         losses.append(loss_mean.item())
 

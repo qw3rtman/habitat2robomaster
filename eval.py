@@ -11,12 +11,14 @@ import pandas as pd
 from pathlib import Path
 from PIL import Image
 
-NETWORKS = ['direct', 'conditional']
+NETWORKS = ['direct', 'conditional', 'direct_ddppo']
 def _get_network(network):
-    if network == 'direct':
+    if network == 'direct':         # v2.x
         return DirectImitation()
-    elif network == 'conditional':
+    elif network == 'conditional':  # v3.x
         return ConditionalImitation()
+    elif network == 'direct_ddppo': # v4.x
+        return DirectImitationDDPPO()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

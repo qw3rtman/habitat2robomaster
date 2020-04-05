@@ -39,6 +39,7 @@ class Policy(nn.Module):
         features, rnn_hidden_states = self.net(
             observations, rnn_hidden_states, prev_actions, masks
         )
+        print(features.shape)
         distribution = self.action_distribution(features)
         value = self.critic(features)
 

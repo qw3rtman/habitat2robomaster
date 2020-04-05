@@ -13,7 +13,7 @@ import quaternion
 
 from utils import Wrap
 
-ACTIONS = torch.eye(5)
+ACTIONS = torch.eye(4)
 
 
 def get_dataset(dataset_dir, batch_size=128, num_workers=4, **kwargs):
