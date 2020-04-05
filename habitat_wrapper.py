@@ -85,6 +85,7 @@ class Rollout:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
             if self.model: # custom network
+                """ TODO: take `network`
                 meta = torch.cat([torch.Tensor([
                     *self.env.current_episode.start_position,
                     *self.env.current_episode.start_rotation,
@@ -98,6 +99,13 @@ class Rollout:
                     'action': self.model((rgb, meta)).detach().argmax().item(),
                     'action_args': {}
                 }
+                """
+
+                # NOTE: for DDPPO-style models
+                rgb = torch.Tensor(np.uint8(observations[self.input_type])).unsqueeze(dim=0)
+                rgb = rgb.to(self.device)
+
+                action = {'action': self.model((rgb,))[0].argmax().item()}
             else: # habitat network
                 action = self.agent.act(observations) # t
             state = self.env.sim.get_agent_state()    # t
