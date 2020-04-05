@@ -35,7 +35,10 @@ def train_or_eval(net, data, optim, is_train, config):
 
         _action = net((rgb,) if 'direct' in config['network'] else (rgb, meta))
 
-        loss = criterion(_action, action).mean(1)
+        loss = criterion(_action, action)
+        if 'ddppo' not in config['network']:
+            loss = loss.mean(1)
+
         loss_mean = loss.mean()
         losses.append(loss_mean.item())
 
@@ -144,7 +147,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_vTEST'
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v4.0'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -165,6 +168,7 @@ if __name__ == '__main__':
             'data_args': {
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
+                'apply_transform': 'ddppo' not in parsed.network
                 },
 
             'optimizer_args': {
