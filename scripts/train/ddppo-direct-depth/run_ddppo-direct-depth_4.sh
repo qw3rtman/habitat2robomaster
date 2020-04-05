@@ -12,5 +12,5 @@ python train_image.py \
     --dataset_dir /scratch/cluster/nimit/data/habitat/ppo_depth \
     --resnet_model resnet34 \
     --lr 0.001 \
-    --batch_size 64 \
+    --batch_size 128 \
     --weight_decay 5e-05
