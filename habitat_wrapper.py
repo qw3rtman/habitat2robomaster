@@ -85,7 +85,8 @@ class Rollout:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
             if self.model: # custom network
-                """ TODO: take `network`
+                # TODO: take `network` flag
+                """
                 meta = torch.cat([torch.Tensor([
                     *self.env.current_episode.start_position,
                     *self.env.current_episode.start_rotation,
@@ -114,17 +115,6 @@ class Rollout:
             rotation  = state.rotation.components
             collision = self.env.get_metrics()['collisions']['is_collision'] if i > 0 else False
 
-            yield {
-                'step': i,
-                'action': action['action'],
-                'position': position,
-                'rotation': rotation,
-                'collision': collision,
-                'rgb': observations['rgb'],
-                'semantic': observations['semantic'],
-                #'metrics': self.env.get_metrics()
-            }
-
             d_pos.append(np.linalg.norm(position - p_pos))
             d_rot.append(np.linalg.norm(rotation - p_rot))
             d_col.append(int(collision))
@@ -142,15 +132,29 @@ class Rollout:
             """
 
             # measure velocity and jitter
-            if i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.input_type]):
-                print('STUCK')
+            is_stuck = i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.input_type])
+            if is_stuck:
+                #print('STUCK')
                 if not self.evaluate:
                     break
-
-            if i > 5 and np.min(d_col) == 1:
+            is_slide = i > 5 and np.min(d_col) == 1
+            if is_slide:
                 #print('COLLIDE')
                 if not self.evaluate:
                     break
+
+            yield {
+                'step': i,
+                'action': action['action'],
+                'position': position,
+                'rotation': rotation,
+                'collision': collision,
+                'rgb': observations['rgb'],
+                'semantic': observations['semantic'],
+                'is_stuck': is_stuck,
+                'is_slide': is_slide
+                #'metrics': self.env.get_metrics()
+            }
 
             p_d_pos = np.mean(d_pos)
             p_d_rot = np.mean(d_rot)

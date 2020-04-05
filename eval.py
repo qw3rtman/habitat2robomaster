@@ -42,17 +42,24 @@ if __name__ == '__main__':
 
     env = Rollout(args.input_type, evaluate=True, model=net)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
+        longest_no_stuck = 0
+        j = 0
+
         steps = rollout_episode(env)
         for i, step in enumerate(steps):
-            #img = Image.fromarray(step['rgb'])
-            #img.show()
-            #time.sleep(0.25)
-            print(i)
-            print()
+            #print(i)
+            #print()
+            if step['is_stuck']:
+                longest_no_stuck = max(longest_no_stuck, j)
+                j = 0
+            j += 1
+
             cv2.imshow('rgb', step['rgb'])
             cv2.waitKey(10 if args.auto else 0)
 
         print(f'[!] finish ep {ep:04}')
+        print(env.env.get_metrics()['collisions'])
+        print('longest with no stucks: {}'.format(longest_no_stuck))
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
                 summary[m] += v
