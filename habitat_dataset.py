@@ -16,14 +16,14 @@ from utils import Wrap
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, batch_size=128, num_workers=4, **kwargs):
+def get_dataset(dataset_dir, batch_size=128, num_workers=4, apply_transform=True, **kwargs):
 
     def make_dataset(is_train):
         data = list()
         train_or_val = 'train' if is_train else 'val'
 
         for episode_dir in (Path(dataset_dir) / train_or_val).iterdir():
-            data.append(HabitatDataset(episode_dir))
+            data.append(HabitatDataset(episode_dir, apply_transform=apply_transform))
 
         data = torch.utils.data.ConcatDataset(data)
 
@@ -38,11 +38,12 @@ def get_dataset(dataset_dir, batch_size=128, num_workers=4, **kwargs):
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir):
+    def __init__(self, episode_dir, apply_transform=True):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
         self.episode_dir = episode_dir
+        self.apply_transform = apply_transform
 
         self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
         self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
@@ -64,7 +65,12 @@ class HabitatDataset(torch.utils.data.Dataset):
         return len(self.imgs)
 
     def __getitem__(self, idx):
-        rgb    = self.transform(Image.open(self.imgs[idx]))
+        rgb    = Image.open(self.imgs[idx])
+        if self.apply_transform:
+            rgb = self.transform(rgb)
+        else:
+            rgb = torch.Tensor(np.uint8(rgb))
+
         seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = ACTIONS[self.actions[idx]].clone()
         meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)

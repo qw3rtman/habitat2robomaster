@@ -1,9 +1,13 @@
 import torch.nn as nn
+from torchvision import transforms
+import torch
+import numpy as np
 from resnet import ResnetBase
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.common.utils import CategoricalNet
 from gym import spaces
+
 
 def spatial_softmax_base():
     return nn.Sequential(
@@ -17,6 +21,10 @@ def spatial_softmax_base():
             nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
             nn.ReLU(True)
     )
+
+class Flatten(nn.Module):
+    def forward(self, x):
+        return x.view(x.size(0), -1)
 
 
 class DirectImitation(ResnetBase): # v2.x
@@ -104,6 +112,6 @@ class DirectImitationDDPPO(nn.Module): # v4.x
 
     def forward(self, x):
         rgb = x[0]
-        rgb_vec = self.visual_encoder({'rgb': torch.FloatTensor(np.uint8(transform_(rgb))).unsqueeze(dim=0)})
+        rgb_vec = self.visual_encoder({'rgb': rgb})
 
         return self.action_distribution(self.visual_fc(rgb_vec)).logits
