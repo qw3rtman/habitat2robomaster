@@ -147,7 +147,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v4.0'
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v4.2'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

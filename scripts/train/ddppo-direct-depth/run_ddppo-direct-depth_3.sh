@@ -7,7 +7,7 @@ cd $HOME/Documents/robomaster/habitat2robomaster
 conda env list
 conda activate /scratch/cluster/nimit/miniconda3/envs/robo
 python train_image.py \
-    --network direct_ddppo \
+    --network ddppo-direct \
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \
     --dataset_dir /scratch/cluster/nimit/data/habitat/ppo_depth \
     --resnet_model resnet34 \
