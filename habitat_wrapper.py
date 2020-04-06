@@ -28,10 +28,10 @@ jitter_threshold = {
 }
 
 models = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
@@ -46,7 +46,11 @@ class Rollout:
         c.RESOLUTION       = 256
         c.HIDDEN_SIZE      = 512
         c.RANDOM_SEED      = 7
+
         c.PTH_GPU_ID       = 0
+        c.SIMULATOR_GPU_ID = 0
+        c.TORCH_GPU_ID     = 0
+        c.NUM_PROCESSES    = 4
 
         c.INPUT_TYPE       = input_type
         c.MODEL_PATH       = models[c.INPUT_TYPE]
@@ -61,7 +65,10 @@ class Rollout:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.evaluate = evaluate
-        self.env = Env(config=get_config(configs[c.INPUT_TYPE]))
+
+        env_config = get_config(configs[c.INPUT_TYPE])
+        #env_config.
+        self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
 
     def _act_custom(self, observations):
@@ -163,7 +170,7 @@ class Rollout:
                 'collision': collision,
                 'rgb': observations['rgb'],
                 'depth': observations['depth'],
-                'semantic': observations['semantic'],
+                #'semantic': observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
                 #'metrics': self.env.get_metrics()
@@ -205,7 +212,7 @@ def get_episode(env, episode_dir, evaluate=False, incomplete_ok=False):
     stats = list()
     for i, step in enumerate(steps):
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
-        np.save(episode_dir / f'seg_{i:04}', step['semantic'])
+        #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
 
         stats.append({
             'step': step['step'],

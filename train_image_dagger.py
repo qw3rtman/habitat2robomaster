@@ -1,6 +1,7 @@
 import argparse
 import time
 from collections import defaultdict
+import shutil
 
 from pathlib import Path
 
@@ -19,7 +20,6 @@ from eval import _get_network, NETWORKS
 from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import models, Rollout, get_episode
 
-ACTIONS = torch.eye(4)
 
 def validate(net, env, config):
     net.eval()
@@ -29,11 +29,13 @@ def validate(net, env, config):
     criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
     tick = time.time()
 
+    ACTIONS = torch.eye(4, device=config['device'])
+
     # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
-    for _ in range(300): # episodes; 300/2000 = 0.15
+    for _ in range(5): # episodes; 300/2000 = 0.15
         for step in env.rollout():
             _action = step['pred_action_logits']
-            action = ACTIONS[step['true_action']]
+            action = ACTIONS[step['true_action']].unsqueeze(dim=0)
 
             _action.to(config['device'])
             action.to(config['device'])
@@ -44,7 +46,7 @@ def validate(net, env, config):
 
             metrics = dict()
             metrics['loss'] = loss_mean.item()
-            metrics['images_per_second'] = rgb.shape[0] / (time.time() - tick)
+            metrics['images_per_second'] = 1. / (time.time() - tick)
 
             """
             if (is_train and i % 100 == 0) or (not is_train and i % 10 == 0):
@@ -74,20 +76,19 @@ def train(net, env, data, optim, config):
         summary = pd.read_csv(config['data_args']['dataset_dir'] / 'summary.csv').iloc[0]
 
     # rollout some datasets; aggregate
-    start = time.time()
-    for ep in range(int(summary['ep']), int(summary['ep']) + 500):
-        episode_dir = config['data_args']['dataset_dir'] / 'train' / f'{ep:06}'
+    num_samples, num_episodes = 0, 0
+    while not (num_samples > 1000 and num_episodes > 100): # until both of these conditions are met...
+        episode_dir = config['data_args']['dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
+        if episode_dir.exists():
+            shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
         get_episode(env, episode_dir, evaluate=False, incomplete_ok=True)
         episode = HabitatDataset(episode_dir, apply_transform=config['data_args']['apply_transform'])
-
         data.add_episode(episode)
-
+        num_samples += len(episode)
+        num_episodes += 1
         summary['ep'] += 1
-
-        print(time.time() - start)
-        start = time.time()
 
         pd.DataFrame([summary]).to_csv(config['data_args']['dataset_dir'] / 'summary.csv', index=False)
 
@@ -98,7 +99,7 @@ def train(net, env, data, optim, config):
     data.post_dagger()
 
     episode_loss = np.zeros(len(data.episodes.datasets))
-    episode_step = np.zeros(len(data.episodes.datasets))
+    episode_step = np.ones(len(data.episodes.datasets)) # prevent divide by zero
     for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
@@ -106,7 +107,7 @@ def train(net, env, data, optim, config):
         _action = net((rgb,) if 'direct' in config['network'] else (rgb, meta))
 
         loss = criterion(_action, action)
-        episode_loss[episode_idx] += loss # unnormalized
+        episode_loss[episode_idx] += loss.detach().cpu().numpy() # unnormalized
         episode_step[episode_idx] += 1
 
         loss_mean = loss.mean()
@@ -129,7 +130,7 @@ def train(net, env, data, optim, config):
         tick = time.time()
 
     # normalize episode losses
-    normalized_episode_loss = np.divide(episode_losses, episode_steps)
+    normalized_episode_loss = np.divide(episode_loss, episode_step)
     for i, episode in enumerate(data.episodes.datasets):
         episode.loss = normalized_episode_loss[i]
 

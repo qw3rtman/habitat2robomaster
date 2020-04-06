@@ -28,7 +28,7 @@ def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_wo
         print('%s: %d' % (train_or_val, len(data)))
 
         if dagger:
-            return DynamicWrap(data, batch_size, 10000 if is_train else 1000, num_workers, capacity=capacity)
+            return DynamicWrap(data, batch_size, 1000, num_workers, capacity=capacity)
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
@@ -78,12 +78,12 @@ class HabitatDataset(torch.utils.data.Dataset):
         else:
             rgb = torch.Tensor(np.uint8(rgb))
 
-        seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
+        #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = ACTIONS[self.actions[idx]].clone()
         meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)
 
         # rgb, mapview, segmentation, action, meta, episode
-        return rgb, 0, seg, action, meta, self.episode_idx
+        return rgb, 0, 0, action, meta, self.episode_idx
 
     def __lt__(self, other):
         return self.loss < other.loss
