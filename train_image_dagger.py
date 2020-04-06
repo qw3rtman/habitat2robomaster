@@ -33,7 +33,7 @@ def validate(net, env, config):
     ACTIONS = torch.eye(4, device=config['device'])
 
     # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
-    for ep in range(100): # episodes; 300/2000 = 0.15
+    for ep in range(5): # episodes; 300/2000 = 0.15
         loss = 0
         images = []
 
@@ -55,7 +55,7 @@ def validate(net, env, config):
                 j = 0
             j += 1
 
-            if ep % 20 == 0:
+            if ep % 1 == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
         metrics = {
@@ -64,8 +64,8 @@ def validate(net, env, config):
             'longest_with_no_stuck': longest_no_stuck
         }
 
-        if ep % 20 == 0:
-            metrics['video'] = wandb.Video(np.array(images), fps=20, format='mp4')
+        if ep % 1 == 0:
+            metrics[f'video_{ep}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
@@ -236,7 +236,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v5.5'
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v5.8'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
