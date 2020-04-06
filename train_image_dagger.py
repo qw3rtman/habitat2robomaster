@@ -24,6 +24,7 @@ from habitat_wrapper import models, Rollout, get_episode
 def validate(net, env, config):
     net.eval()
     env.model = net
+    env.evaluate = True
 
     losses = list()
     criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
@@ -36,6 +37,8 @@ def validate(net, env, config):
         loss = 0
         images = []
 
+        longest_no_stuck = 0
+        j = 0
         for i, step in enumerate(env.rollout()):
             _action = step['pred_action_logits']
             action = ACTIONS[step['true_action']].unsqueeze(dim=0)
@@ -47,16 +50,22 @@ def validate(net, env, config):
             loss += loss_mean.item()
             losses.append(loss_mean.item())
 
+            if step['is_stuck']:
+                longest_no_stuck = max(longest_no_stuck, j)
+                j = 0
+            j += 1
+
             if ep % 20 == 0:
-                images.append(step['rgb'])
+                images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
         metrics = {
-            'loss': loss / i,
-            'images_per_second': i / (time.time() - tick)
+            'loss': loss / (i+1),
+            'images_per_second': i / (time.time() - tick),
+            'longest_with_no_stuck': longest_no_stuck
         }
 
         if ep % 20 == 0:
-            metrics['video'] = wandb.Video(np.array(images), fps=40, format='mp4')
+            metrics['video'] = wandb.Video(np.array(images), fps=20, format='mp4')
 
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
@@ -69,6 +78,7 @@ def validate(net, env, config):
 
 def train(net, env, data, optim, config):
     net.train()
+    env.evaluate = False
 
     losses = list()
     criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
@@ -81,7 +91,7 @@ def train(net, env, data, optim, config):
 
     # rollout some datasets; aggregate
     num_samples, num_episodes = 0, 0
-    while not (num_samples > 5000 and num_episodes > 100): # until both of these conditions are met...
+    while not (num_samples > 1000 and num_episodes > 50): # until both of these conditions are met...
         episode_dir = config['data_args']['dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
         if episode_dir.exists():
             shutil.rmtree(episode_dir, ignore_errors=True)
@@ -205,11 +215,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--network', choices=NETWORKS, required=True)
 
-    parser.add_argument('--max_epoch', type=int, default=50)
+    parser.add_argument('--max_epoch', type=int, default=100)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
     # Model args.
-    parser.add_argument('--resnet_model', default='resnet34')
+    parser.add_argument('--resnet_model', default='SE-ResNeXt-50')
     parser.add_argument('--pretrained', default=False, action='store_true')
 
     # Data args.
@@ -226,7 +236,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v4.2'
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v5.5'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

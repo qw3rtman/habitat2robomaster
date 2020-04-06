@@ -61,13 +61,14 @@ class Rollout:
         self.input_type = input_type
         self.dagger = dagger
         self.model = model
+        self.model.eval()
+
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.evaluate = evaluate
 
         env_config = get_config(configs[c.INPUT_TYPE])
-        #env_config.
         self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
 
@@ -202,12 +203,12 @@ def get_episode(env, episode_dir, evaluate=False, incomplete_ok=False):
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
         steps = rollout_episode(env)
         if incomplete_ok:
-            print(len(steps), bool(env.env.get_metrics()['success']))
+            #print(len(steps), bool(env.env.get_metrics()['success']))
             break
 
-        print('TRY AGAIN')
-        print(len(steps), bool(env.env.get_metrics()['success']))
-        print()
+        #print('TRY AGAIN')
+        #print(len(steps), bool(env.env.get_metrics()['success']))
+        #print()
 
     stats = list()
     for i, step in enumerate(steps):
