@@ -32,33 +32,37 @@ def validate(net, env, config):
     ACTIONS = torch.eye(4, device=config['device'])
 
     # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
-    for _ in range(5): # episodes; 300/2000 = 0.15
-        for step in env.rollout():
+    for ep in range(100): # episodes; 300/2000 = 0.15
+        loss = 0
+        images = []
+
+        for i, step in enumerate(env.rollout()):
             _action = step['pred_action_logits']
             action = ACTIONS[step['true_action']].unsqueeze(dim=0)
 
             _action.to(config['device'])
             action.to(config['device'])
 
-            loss = criterion(_action, action)
-            loss_mean = loss.mean()
+            loss_mean = criterion(_action, action).mean()
+            loss += loss_mean.item()
             losses.append(loss_mean.item())
 
-            metrics = dict()
-            metrics['loss'] = loss_mean.item()
-            metrics['images_per_second'] = 1. / (time.time() - tick)
+            if ep % 20 == 0:
+                images.append(step['rgb'])
 
-            """
-            if (is_train and i % 100 == 0) or (not is_train and i % 10 == 0):
-                metrics['images'] = _log_visuals(
-                        rgb, x, action_pixel, action, _action, loss)
-            """
+        metrics = {
+            'loss': loss / i,
+            'images_per_second': i / (time.time() - tick)
+        }
 
-            wandb.log(
-                    {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
-                    step=wandb.run.summary['step'])
+        if ep % 20 == 0:
+            metrics['video'] = wandb.Video(np.array(images), fps=40, format='mp4')
 
-            tick = time.time()
+        wandb.log(
+                {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
+                step=wandb.run.summary['step'])
+
+        tick = time.time()
 
     return np.mean(losses)
 
@@ -77,7 +81,7 @@ def train(net, env, data, optim, config):
 
     # rollout some datasets; aggregate
     num_samples, num_episodes = 0, 0
-    while not (num_samples > 1000 and num_episodes > 100): # until both of these conditions are met...
+    while not (num_samples > 5000 and num_episodes > 100): # until both of these conditions are met...
         episode_dir = config['data_args']['dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
         if episode_dir.exists():
             shutil.rmtree(episode_dir, ignore_errors=True)
