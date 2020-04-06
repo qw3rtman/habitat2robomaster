@@ -28,10 +28,10 @@ jitter_threshold = {
 }
 
 models = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 configs = {
@@ -169,7 +169,11 @@ def rollout_episode(env):
 
     return steps
 
-def get_episode(env, episode_dir, evaluate=False):
+def get_episode(env, episode_dir, evaluate=False, incomplete_ok=False):
+    """
+    evaluate      : not generating episodes, evaluating some trained policy. no saving
+    incomplete_ok : get incomplete episodes; use to train lane-following via DAgger efficiently
+    """
     if evaluate:
         rollout_episode(env)
         return
@@ -177,6 +181,10 @@ def get_episode(env, episode_dir, evaluate=False):
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
         steps = rollout_episode(env)
+        if incomplete_ok:
+            print(len(steps), bool(env.env.get_metrics()['success']))
+            break
+
         print('TRY AGAIN')
         print(len(steps), bool(env.env.get_metrics()['success']))
         print()
@@ -214,6 +222,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--incomplete_ok', action='store_true')
     parser.add_argument('--evaluate', action='store_true')
     args = parser.parse_args()
 
@@ -224,13 +233,13 @@ if __name__ == '__main__':
 
     env = Rollout(args.input_type, evaluate=args.evaluate)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
-        episode_dir = args.dataset_dir / f'{ep:04}'
+        episode_dir = args.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir, args.evaluate)
+        get_episode(env, episode_dir, args.evaluate, incomplete_ok=args.incomplete_ok)
 
-        print(f'[!] finish ep {ep:04}')
+        print(f'[!] finish ep {ep:06}')
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
                 summary[m] += v

@@ -11,36 +11,42 @@ from operator import itemgetter
 from itertools import repeat
 import quaternion
 
-from utils import Wrap
+from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, batch_size=128, num_workers=4, apply_transform=True, **kwargs):
+def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_workers=4, apply_transform=True, **kwargs):
 
     def make_dataset(is_train):
         data = list()
         train_or_val = 'train' if is_train else 'val'
 
         for episode_dir in (Path(dataset_dir) / train_or_val).iterdir():
-            data.append(HabitatDataset(episode_dir, apply_transform=apply_transform))
-
-        data = torch.utils.data.ConcatDataset(data)
+            data.append(HabitatDataset(episode_dir, apply_transform=apply_transform, is_seed=dagger))
 
         print('%s: %d' % (train_or_val, len(data)))
 
-        return Wrap(data, batch_size, 1000 if is_train else 100, num_workers)
+        if dagger:
+            return DynamicWrap(data, batch_size, 10000 if is_train else 1000, num_workers, capacity=capacity)
+        else:
+            return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
     train_dataset = make_dataset(True)
-    test_dataset = make_dataset(False)
+    if not dagger:
+        test_dataset = make_dataset(False)
+        return train_dataset, test_dataset
 
-    return train_dataset, test_dataset
+    return train_dataset
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, apply_transform=True):
+    def __init__(self, episode_dir, apply_transform=True, is_seed=False):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
+
+        self.loss = 0.0 # kick out these seeded ones first
+        self.is_seed = is_seed
 
         self.episode_dir = episode_dir
         self.apply_transform = apply_transform
@@ -77,6 +83,9 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         # rgb, mapview, segmentation, action, meta
         return rgb, 0, seg, action, meta
+
+    def __lt__(self, other):
+        return self.loss < other.loss
 
 
 if __name__ == '__main__':
