@@ -21,9 +21,18 @@ def infinite_dataloader(data, batch_size, num_workers):
 
 class Wrap(object):
     def __init__(self, data, batch_size, samples, num_workers):
-        self.data = infinite_dataloader(data, batch_size, num_workers)
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+        self.episodes = data
+
+        self.data = infinite_dataloader(self.episodes, batch_size, num_workers)
         self.samples = samples
         self.count = 0
+
+    def add_episode(self, episode):
+        self.episodes.datasets.append(episode)
+        self.episodes.cumulative_sizes.append(self.episodes.cumulative_sizes[-1] + len(episode))
 
     def __iter__(self):
         for i in range(self.samples):
