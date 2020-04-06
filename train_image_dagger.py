@@ -1,5 +1,6 @@
 import argparse
 import time
+from collections import defaultdict
 
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import numpy as np
 import torch
 import torchvision
 import yaml
+import pandas as pd
 
 from PIL import Image, ImageDraw
 
@@ -21,6 +23,7 @@ ACTIONS = torch.eye(4)
 
 def validate(net, env, config):
     net.eval()
+    env.model = net
 
     losses = list()
     criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
@@ -50,7 +53,7 @@ def validate(net, env, config):
             """
 
             wandb.log(
-                    {('%s/%s' % (desc, k)): v for k, v in metrics.items()},
+                    {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
                     step=wandb.run.summary['step'])
 
             tick = time.time()
@@ -67,18 +70,26 @@ def train(net, env, data, optim, config):
 
     summary = defaultdict(float)
     summary['ep'] = 1
-    if (args.dataset_dir / 'summary.csv').exists():
-        summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
+    if (config['data_args']['dataset_dir'] / 'summary.csv').exists():
+        summary = pd.read_csv(config['data_args']['dataset_dir'] / 'summary.csv').iloc[0]
 
     # rollout some datasets; aggregate
+    start = time.time()
     for ep in range(int(summary['ep']), int(summary['ep']) + 500):
-        episode_dir = args.dataset_dir / f'{ep:06}'
+        episode_dir = config['data_args']['dataset_dir'] / 'train' / f'{ep:06}'
         episode_dir.mkdir(parents=True, exist_ok=True)
 
         get_episode(env, episode_dir, evaluate=False, incomplete_ok=True)
         episode = HabitatDataset(episode_dir, apply_transform=config['data_args']['apply_transform'])
 
         data.add_episode(episode)
+
+        summary['ep'] += 1
+
+        print(time.time() - start)
+        start = time.time()
+
+        pd.DataFrame([summary]).to_csv(config['data_args']['dataset_dir'] / 'summary.csv', index=False)
 
     for i, episode in enumerate(data.episodes.datasets):
         episode.episode_idx = i
@@ -88,7 +99,7 @@ def train(net, env, data, optim, config):
 
     episode_loss = np.zeros(len(data.episodes.datasets))
     episode_step = np.zeros(len(data.episodes.datasets))
-    for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
+    for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
 
@@ -112,7 +123,7 @@ def train(net, env, data, optim, config):
         metrics['images_per_second'] = rgb.shape[0] / (time.time() - tick)
 
         wandb.log(
-                {('%s/%s' % (desc, k)): v for k, v in metrics.items()},
+                {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
         tick = time.time()
@@ -161,7 +172,7 @@ def main(config):
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
-    env = Rollout(config['teacher_args']['input_type'], dagger=True)
+    env = Rollout(config['teacher_args']['input_type'], dagger=True, model=net)
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch'], config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
@@ -201,7 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Teacher args.
-    parsed.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--input_type', choices=models.keys(), required=True)
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
