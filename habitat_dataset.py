@@ -45,6 +45,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
+        self.episode_idx = 0
         self.loss = 0.0 # kick out these seeded ones first
         self.is_seed = is_seed
 
@@ -81,8 +82,8 @@ class HabitatDataset(torch.utils.data.Dataset):
         action = ACTIONS[self.actions[idx]].clone()
         meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)
 
-        # rgb, mapview, segmentation, action, meta
-        return rgb, 0, seg, action, meta
+        # rgb, mapview, segmentation, action, meta, episode
+        return rgb, 0, seg, action, meta, self.episode_idx
 
     def __lt__(self, other):
         return self.loss < other.loss

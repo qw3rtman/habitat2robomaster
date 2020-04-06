@@ -14,56 +14,116 @@ from PIL import Image, ImageDraw
 
 from model import *
 from eval import _get_network, NETWORKS
-from habitat_dataset import get_dataset
+from habitat_dataset import get_dataset, HabitatDataset
+from habitat_wrapper import models, Rollout, get_episode
 
-def train_or_eval(net, data, optim, is_train, config):
-    if is_train:
-        desc = 'train'
-        net.train()
-    else:
-        desc = 'val'
-        net.eval()
+ACTIONS = torch.eye(4)
+
+def validate(net, env, config):
+    net.eval()
 
     losses = list()
-    criterion = torch.nn.BCEWithLogitsLoss() if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
+    criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
     tick = time.time()
 
-    for i, (rgb, _, _, action, meta) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
+    # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
+    for _ in range(300): # episodes; 300/2000 = 0.15
+        for step in env.rollout():
+            _action = step['pred_action_logits']
+            action = ACTIONS[step['true_action']]
+
+            _action.to(config['device'])
+            action.to(config['device'])
+
+            loss = criterion(_action, action)
+            loss_mean = loss.mean()
+            losses.append(loss_mean.item())
+
+            metrics = dict()
+            metrics['loss'] = loss_mean.item()
+            metrics['images_per_second'] = rgb.shape[0] / (time.time() - tick)
+
+            """
+            if (is_train and i % 100 == 0) or (not is_train and i % 10 == 0):
+                metrics['images'] = _log_visuals(
+                        rgb, x, action_pixel, action, _action, loss)
+            """
+
+            wandb.log(
+                    {('%s/%s' % (desc, k)): v for k, v in metrics.items()},
+                    step=wandb.run.summary['step'])
+
+            tick = time.time()
+
+    return np.mean(losses)
+
+
+def train(net, env, data, optim, config):
+    net.train()
+
+    losses = list()
+    criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
+    tick = time.time()
+
+    summary = defaultdict(float)
+    summary['ep'] = 1
+    if (args.dataset_dir / 'summary.csv').exists():
+        summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
+
+    # rollout some datasets; aggregate
+    for ep in range(int(summary['ep']), int(summary['ep']) + 500):
+        episode_dir = args.dataset_dir / f'{ep:06}'
+        episode_dir.mkdir(parents=True, exist_ok=True)
+
+        get_episode(env, episode_dir, evaluate=False, incomplete_ok=True)
+        episode = HabitatDataset(episode_dir, apply_transform=config['data_args']['apply_transform'])
+
+        data.add_episode(episode)
+
+    for i, episode in enumerate(data.episodes.datasets):
+        episode.episode_idx = i
+
+    # cleanup after dagger
+    data.post_dagger()
+
+    episode_loss = np.zeros(len(data.episodes.datasets))
+    episode_step = np.zeros(len(data.episodes.datasets))
+    for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc=desc, total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
-        meta = meta.to(config['device'])
         action = action.to(config['device'])
 
         _action = net((rgb,) if 'direct' in config['network'] else (rgb, meta))
 
         loss = criterion(_action, action)
-        if 'ddppo' not in config['network']:
-            loss = loss.mean(1)
+        episode_loss[episode_idx] += loss # unnormalized
+        episode_step[episode_idx] += 1
 
         loss_mean = loss.mean()
         losses.append(loss_mean.item())
 
-        if is_train:
-            loss_mean.backward()
-            optim.step()
-            optim.zero_grad()
+        loss_mean.backward()
+        optim.step()
+        optim.zero_grad()
 
-            wandb.run.summary['step'] += 1
+        wandb.run.summary['step'] += 1
 
         metrics = dict()
         metrics['loss'] = loss_mean.item()
         metrics['images_per_second'] = rgb.shape[0] / (time.time() - tick)
-
-        """
-        if (is_train and i % 100 == 0) or (not is_train and i % 10 == 0):
-            metrics['images'] = _log_visuals(
-                    rgb, x, action_pixel, action, _action, loss)
-        """
 
         wandb.log(
                 {('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
         tick = time.time()
+
+    # normalize episode losses
+    normalized_episode_loss = np.divide(episode_losses, episode_steps)
+    for i, episode in enumerate(data.episodes.datasets):
+        episode.loss = normalized_episode_loss[i]
+
+    # balance heap
+    data.post_train()
 
     return np.mean(losses)
 
@@ -84,7 +144,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = _get_network(config['network']).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'])
+    data_train = get_dataset(**config['data_args'])
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -101,15 +161,15 @@ def main(config):
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
+    env = Rollout(config['teacher_args']['input_type'], dagger=True)
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch'], config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
         checkpoint_project(net, optim, scheduler, config)
 
-        loss_train = train_or_eval(net, data_train, optim, True, config)
-
+        loss_train = train(net, env, data_train, optim, config)
         with torch.no_grad():
-            loss_val = train_or_eval(net, data_val, None, False, config)
+            loss_val = validate(net, env, config)
 
         scheduler.step()
 
@@ -140,6 +200,9 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--batch_size', type=int, default=128)
 
+    # Teacher args.
+    parsed.add_argument('--input_type', choices=models.keys(), required=True)
+
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--weight_decay', type=float, default=5e-5)
@@ -168,7 +231,13 @@ if __name__ == '__main__':
             'data_args': {
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
-                'apply_transform': 'ddppo' not in parsed.network
+                'apply_transform': 'ddppo' not in parsed.network,
+                'dagger': True,
+                'capacity': 2000
+                },
+
+            'teacher_args': {
+                'input_type': parsed.input_type
                 },
 
             'optimizer_args': {

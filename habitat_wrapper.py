@@ -40,7 +40,7 @@ configs = {
 }
 
 class Rollout:
-    def __init__(self, input_type, evaluate=False, model=None):
+    def __init__(self, input_type, evaluate=False, model=None, dagger=False):
         c = Config()
 
         c.RESOLUTION       = 256
@@ -55,6 +55,7 @@ class Rollout:
         c.freeze()
 
         self.input_type = input_type
+        self.dagger = dagger
         self.model = model
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -62,6 +63,31 @@ class Rollout:
         self.evaluate = evaluate
         self.env = Env(config=get_config(configs[c.INPUT_TYPE]))
         self.agent = PPOAgent(c)
+
+    def _act_custom(self, observations):
+        # TODO: take `network` flag
+        """
+        meta = torch.cat([torch.Tensor([
+            *self.env.current_episode.start_position,
+            *self.env.current_episode.start_rotation,
+            *self.env.current_episode.goals[0].position])])
+        rgb = self.transform(observations[self.input_type]).unsqueeze(dim=0)
+
+        meta = meta.to(self.device)
+        rgb = rgb.to(self.device)
+
+        action = {
+            'action': self.model((rgb, meta)).detach().argmax().item(),
+            'action_args': {}
+        }
+        """
+
+        # NOTE: for DDPPO-style models
+        rgb = torch.Tensor(np.uint8(observations[self.input_type])).unsqueeze(dim=0)
+        rgb = rgb.to(self.device)
+
+        out = self.model((rgb,))
+        return {'action': out[0].argmax().item()}, out # action, logits
 
     def rollout(self):
         self.agent.reset()
@@ -84,31 +110,15 @@ class Rollout:
         while not self.env.episode_over:
             # TODO: prune bad/stuck episodes as in supertux PPO
             # TODO: wall collisions, etc.
-            if self.model: # custom network
-                # TODO: take `network` flag
-                """
-                meta = torch.cat([torch.Tensor([
-                    *self.env.current_episode.start_position,
-                    *self.env.current_episode.start_rotation,
-                    *self.env.current_episode.goals[0].position])])
-                rgb = self.transform(observations[self.input_type]).unsqueeze(dim=0)
+            if self.dagger:
+                true_action = self.agent.act(observations)                  # supervision
+                action, pred_action_logits = self._act_custom(observations) # predicted; rollout with this one
+            else:
+                if self.model: # custom network (i.e: student)
+                    action, _ = self._act_custom(observations)
+                else: # habitat network
+                    action = self.agent.act(observations) # t
 
-                meta = meta.to(self.device)
-                rgb = rgb.to(self.device)
-
-                action = {
-                    'action': self.model((rgb, meta)).detach().argmax().item(),
-                    'action_args': {}
-                }
-                """
-
-                # NOTE: for DDPPO-style models
-                rgb = torch.Tensor(np.uint8(observations[self.input_type])).unsqueeze(dim=0)
-                rgb = rgb.to(self.device)
-
-                action = {'action': self.model((rgb,))[0].argmax().item()}
-            else: # habitat network
-                action = self.agent.act(observations) # t
             state = self.env.sim.get_agent_state()    # t
 
             position  = state.position
@@ -145,11 +155,14 @@ class Rollout:
 
             yield {
                 'step': i,
-                'action': action['action'],
+                'action': action['action'], # what we took
+                'pred_action_logits': pred_action_logits if self.dagger else None, # predicted logits
+                'true_action': true_action['action'] if self.dagger else None,
                 'position': position,
                 'rotation': rotation,
                 'collision': collision,
                 'rgb': observations['rgb'],
+                'depth': observations['depth'],
                 'semantic': observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
