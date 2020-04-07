@@ -14,7 +14,7 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_network(conditional=False, **resnet_kwargs):
+def get_model(conditional=False, **resnet_kwargs):
     if conditional:
         pass
     

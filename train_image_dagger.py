@@ -16,7 +16,7 @@ import pandas as pd
 from PIL import Image, ImageDraw
 
 from model import get_model
-from habitat_dataset import get_dataset, HabitatDataset, ACTIONS
+from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, Rollout, get_episode
 
 
@@ -37,10 +37,10 @@ def validate(net, env, config):
         loss, lwns, j = 0, 0, 0
         for i, step in enumerate(env.rollout()):
             _action = step['pred_action_logits']
-            action = ACTIONS[step['true_action']].clone().unsqueeze(dim=0)
-
             _action.to(config['device'])
-            action.to(config['device'])
+
+            action = torch.zeros(1, 4).to(torch.device('cuda'))
+            action[:, step['true_action']] = 1
 
             loss_mean = criterion(_action, action).mean()
             loss += loss_mean.item()
@@ -55,7 +55,7 @@ def validate(net, env, config):
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
         total_lwns += lwns
-        if ep == NUM_EPISODES - 1 and config['teacher']['teacher_args'] == 'dontcrash':
+        if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
             metrics['LWNS'] = total_lwns / NUM_EPISODES
 
         metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
@@ -177,8 +177,8 @@ def main(config):
     net = get_model(**config['student_args']).to(config['device'])
     data_train, _ = get_dataset(**config['data_args'])
 
-    (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
-    ACTIONS.to(config['device'])
+    if config['dagger']:
+        (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
 
     env = Rollout(**config['teacher_args'], model=net)
 
@@ -251,12 +251,12 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    run_name = '-'.join([
+    run_name = '-'.join(map(str, [
         parsed.resnet_model,
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ]) + '-v5.x'
+    ])) + '-vTEST'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +272,7 @@ if __name__ == '__main__':
             'teacher_args': {
                 'task': parsed.teacher_task,
                 'proxy': parsed.teacher_proxy,
-                'dagger': parsed.dagger
+                'dagger': True #parsed.dagger
                 },
 
             'student_args': {
@@ -287,7 +287,7 @@ if __name__ == '__main__':
 
                 'dagger': parsed.dagger,
                 'capacity': parsed.capacity,
-                'per_epoch': parsed.per_epoch,
+                'episodes_per_epoch': parsed.episodes_per_epoch,
 
                 'dagger_dataset_dir': parsed.dagger_dataset_dir
                 },

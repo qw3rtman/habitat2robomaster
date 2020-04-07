@@ -31,10 +31,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -126,7 +126,7 @@ class Rollout:
                 action, pred_action_logits = self.act_custom(observations) # predicted; rollout with this one
             else:
                 if self.model: # custom network (i.e: student)
-                    action, _ = self._act_custom(observations)
+                    action, _ = self.act_custom(observations)
                 else: # habitat network
                     action = self.agent.act(observations)
 

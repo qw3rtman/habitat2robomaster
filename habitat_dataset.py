@@ -31,9 +31,9 @@ def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_wo
         print('%s: %d' % (train_or_val, len(data)))
 
         if dagger:
-            return DynamicWrap(data, batch_size, 1000, num_workers, capacity=capacity)
+            return DynamicWrap(data, batch_size, 10, num_workers, capacity=capacity)
         else:
-            return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
+            return StaticWrap(data, batch_size, 10 if is_train else 100, num_workers)
 
     return make_dataset(True), None if dagger else make_dataset(False)
 
