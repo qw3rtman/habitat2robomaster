@@ -43,7 +43,7 @@ CONFIGS = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, model=None, dagger=False, max_episode_length=200):
+    def __init__(self, task, proxy, model=None, dagger=False, max_episode_length=200, save_episode=True):
         """
         model:  evaluate via this model policy, if not None
         dagger: evaluate both PPOAgent and model at each step
@@ -72,6 +72,7 @@ class Rollout:
         self.dagger = dagger
         self.model = model
         self.max_episode_length = max_episode_length
+        self.save_episode = save_episode
 
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -191,7 +192,7 @@ def rollout_episode(env):
     return steps
 
 def get_episode(env, episode_dir):
-    if env.evaluate:
+    if env.evaluate and not env.save_episode:
         rollout_episode(env)
         return
 

@@ -31,9 +31,9 @@ def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_wo
         print('%s: %d' % (train_or_val, len(data)))
 
         if dagger:
-            return DynamicWrap(data, batch_size, 10, num_workers, capacity=capacity)
+            return DynamicWrap(data, batch_size, 1000, num_workers, capacity=capacity)
         else:
-            return StaticWrap(data, batch_size, 10 if is_train else 100, num_workers)
+            return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
     return make_dataset(True), None if dagger else make_dataset(False)
 
@@ -55,7 +55,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.measurements = pd.read_csv(episode_dir / 'episode.csv')
         self.positions = np.stack(itemgetter('x','y','y')(self.measurements), -1)
         self.rotations = np.stack(itemgetter('i','j','k','l')(self.measurements), -1)
-        self.actions = np.array(self.measurements['action'])
+        self.actions = torch.LongTensor(self.measurements['action'])
 
         self.info = pd.read_csv(episode_dir / 'info.csv').iloc[0]
         self.start_position = torch.Tensor(itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info))
@@ -73,7 +73,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         rgb    = torch.Tensor(np.uint8(rgb))
 
         #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
-        action = ACTIONS[self.actions[idx]].clone()
+        action = self.actions[idx]
         meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)
 
         # rgb, mapview, segmentation, action, meta, episode

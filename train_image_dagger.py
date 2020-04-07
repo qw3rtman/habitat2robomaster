@@ -28,7 +28,7 @@ def validate(net, env, config):
     net.eval()
 
     losses = list()
-    criterion = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
     total_lwns = 0
@@ -39,8 +39,7 @@ def validate(net, env, config):
             _action = step['pred_action_logits']
             _action.to(config['device'])
 
-            action = torch.zeros(1, 4).to(torch.device('cuda'))
-            action[:, step['true_action']] = 1
+            action = torch.LongTensor([step['true_action']]).to(config['device'])
 
             loss_mean = criterion(_action, action).mean()
             loss += loss_mean.item()
@@ -60,7 +59,7 @@ def validate(net, env, config):
 
         metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
         if ep % VIDEO_FREQ == 0:
-            metrics[f'video_{ep}'] = wandb.Video(np.array(images), fps=30, format='mp4')
+            metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
@@ -110,13 +109,13 @@ def train(net, env, data, optim, config):
         episode_step = np.ones(len(data.episodes.datasets)) # prevent divide by zero
 
     losses = list()
-    criterion = torch.nn.BCEWithLogitsLoss()
+    criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
     net.train()
     for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
-        action = action.to(config['device'])
+        action = torch.LongTensor(action).to(config['device'])
 
         if config['student_args']['conditional']:
             _action = net((rgb, meta))
@@ -256,7 +255,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-vTEST'
+    ])) + '-vTEST3'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -39,10 +39,13 @@ class DirectImitation(nn.Module):
             nn.ReLU(True)
         )
 
-        self.action_distribution = CategoricalNet(hidden_size, dim_actions)
+        self.action_fc = nn.Linear(hidden_size, dim_actions)
+
+        #nn.init.orthogonal_(self.action_fc.weight, gain=0.01)
+        #nn.init.constant_(self.action_fc.bias, 0)
 
     def forward(self, x):
         rgb = x[0]
         rgb_vec = self.visual_encoder({'rgb': rgb})
 
-        return self.action_distribution(self.visual_fc(rgb_vec)).logits
+        return self.action_fc(self.visual_fc(rgb_vec))
