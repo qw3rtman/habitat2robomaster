@@ -188,9 +188,9 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75],
             gamma=0.5)
 
-    wandb.init(project='habitat-{}-{}-student'.format(
-        config['teacher_args']['task'], config['teacher_args']['proxy']
-        ), config=config, id=config['run_name'], resume='auto')
+    project_name = 'habitat-{}-{}-student'.format(
+            config['teacher_args']['task'], config['teacher_args']['proxy'])
+    wandb.init(project=project_name, config=config, id=config['run_name'], resume='auto')
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
 
     if wandb.run.resumed:
@@ -251,12 +251,12 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = [
-        'resnet_model', 'conditional', 'lr', 'weight_decay', # student: model, training
-        'dataset_size', 'batch_size', 'capacity',            # dataset: training student
-        'episodes_per_epoch',                                # dataset: generating via teacher
-        'teacher_task', 'teacher_proxy', 'dagger']           # teacher: proxy task, dagger
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v6.1'
+    run_name = '-'.join([
+        parsed.resnet_model,
+        'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
+        *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
+        parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
+    ]) + '-v5.x'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
