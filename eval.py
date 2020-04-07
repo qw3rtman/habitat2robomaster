@@ -1,4 +1,4 @@
-from habitat_wrapper import Rollout, rollout_episode, models, METRICS
+from habitat_wrapper import Rollout, rollout_episode, MODELS, METRICS
 from model import *
 
 import argparse
@@ -11,21 +11,13 @@ import pandas as pd
 from pathlib import Path
 from PIL import Image
 
-NETWORKS = ['ppo-direct', 'ppo-conditional', 'ddppo-direct']
-def _get_network(network):
-    if network == 'ppo-direct':         # v2.x
-        return DirectImitation()
-    elif network == 'ppo-conditional':  # v3.x
-        return ConditionalImitation()
-    elif network == 'ddppo-direct': # v4.x
-        return DirectImitationDDPPO()
-
+# TODO: FIX THIS WHOLE SCRIPT
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # TODO: take model_path and config_path
     parser.add_argument('--model_path', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
-    parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--input_type', choices=MODELS.keys(), required=True)
     parser.add_argument('--network', choices=NETWORKS, required=True)
     parser.add_argument('--auto', action='store_true')
     args = parser.parse_args()

@@ -20,6 +20,9 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat_baselines.agents.ppo_agents import PPOAgent
 from gym.spaces import Box, Dict, Discrete
 
+DEBUG = False
+
+TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 METRICS = ['distance_to_goal', 'success', 'spl']
 
 jitter_threshold = {
@@ -27,20 +30,26 @@ jitter_threshold = {
     'depth': 7.5e-2
 }
 
-models = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+MODELS = {
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
-configs = {
+CONFIGS = {
     'rgb':   'rgb_test.yaml',
     'depth': 'depth_test.yaml'
 }
 
 class Rollout:
-    def __init__(self, input_type, evaluate=False, model=None, dagger=False):
+    def __init__(self, task, proxy, model=None, dagger=False, max_episode_length=200):
+        """
+        model:  evaluate via this model policy, if not None
+        dagger: evaluate both PPOAgent and model at each step
+        """
+        assert task in TASKS
+
         c = Config()
 
         c.RESOLUTION       = 256
@@ -52,45 +61,41 @@ class Rollout:
         c.TORCH_GPU_ID     = 0
         c.NUM_PROCESSES    = 4
 
-        c.INPUT_TYPE       = input_type
-        c.MODEL_PATH       = models[c.INPUT_TYPE]
+        c.INPUT_TYPE       = proxy
+        c.MODEL_PATH       = MODELS[c.INPUT_TYPE]
         c.GOAL_SENSOR_UUID = 'pointgoal_with_gps_compass'
 
         c.freeze()
 
-        self.input_type = input_type
+        self.task = task
+        self.proxy = proxy
         self.dagger = dagger
         self.model = model
-        self.model.eval()
+        self.max_episode_length = max_episode_length
 
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.evaluate = evaluate
-
-        env_config = get_config(configs[c.INPUT_TYPE])
+        env_config = get_config(CONFIGS[c.INPUT_TYPE])
         self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
 
-    def _act_custom(self, observations):
-        # TODO: take `network` flag
-        """
-        meta = torch.cat([torch.Tensor([
-            *self.env.current_episode.start_position,
-            *self.env.current_episode.start_rotation,
-            *self.env.current_episode.goals[0].position])])
-        rgb = self.transform(observations[self.input_type]).unsqueeze(dim=0)
+        self.train()
 
-        meta = meta.to(self.device)
-        rgb = rgb.to(self.device)
+    # evaluating rollout driven by self.model
+    def eval(self):
+        self.evaluate = True
+        if self.model:
+            self.model.eval()
 
-        action = {
-            'action': self.model((rgb, meta)).detach().argmax().item(),
-            'action_args': {}
-        }
-        """
+    # generating data to train self.model
+    def train(self):
+        self.evaluate = False
+        if self.model:
+            self.model.eval()
 
-        # NOTE: for DDPPO-style models
+    def act_custom(self, observations):
+        # NOTE: get CONDITIONAL from 11682f9
         rgb = torch.Tensor(np.uint8(observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
 
@@ -116,18 +121,20 @@ class Rollout:
         p_col = self.env.get_metrics()['collisions']['is_collision'] if i > 0 else False
 
         while not self.env.episode_over:
-            # TODO: prune bad/stuck episodes as in supertux PPO
-            # TODO: wall collisions, etc.
             if self.dagger:
-                true_action = self.agent.act(observations)                  # supervision
-                action, pred_action_logits = self._act_custom(observations) # predicted; rollout with this one
+                true_action = self.agent.act(observations)                 # supervision
+                action, pred_action_logits = self.act_custom(observations) # predicted; rollout with this one
             else:
                 if self.model: # custom network (i.e: student)
                     action, _ = self._act_custom(observations)
                 else: # habitat network
-                    action = self.agent.act(observations) # t
+                    action = self.agent.act(observations)
 
-            state = self.env.sim.get_agent_state()    # t
+            # NOTE: stop command
+            if self.task == 'dontcrash' and action['action'] == 0:
+                break
+
+            state = self.env.sim.get_agent_state()
 
             position  = state.position
             rotation  = state.rotation.components
@@ -140,24 +147,14 @@ class Rollout:
             dd_pos = abs(p_d_pos - np.mean(d_pos))
             dd_rot = abs(p_d_rot - np.mean(d_rot))
 
-            """
-            if i > 10:
-                print('i = {}.'.format(i))
-                print('dd_pos: {}'.format(dd_pos))
-                print('dd_rot: {}'.format(dd_rot))
-                print(np.sqrt(dd_pos**2 + dd_rot**2))
-                print()
-            """
-
             # measure velocity and jitter
-            is_stuck = i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.input_type])
+            is_stuck = i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.proxy])
             if is_stuck:
-                #print('STUCK')
                 if not self.evaluate:
                     break
+
             is_slide = i > 5 and np.min(d_col) == 1
             if is_slide:
-                #print('COLLIDE')
                 if not self.evaluate:
                     break
 
@@ -174,15 +171,18 @@ class Rollout:
                 #'semantic': observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
-                #'metrics': self.env.get_metrics()
             }
 
             p_d_pos = np.mean(d_pos)
             p_d_rot = np.mean(d_rot)
 
-            observations = self.env.step(action)
             i += 1
+            if i >= self.max_episode_length and not self.evaluate:
+                break
 
+            observations = self.env.step(action)
+
+# NOTE: storing in a list takes a lot of memory. keeps rgb on CUDA from rollout method
 def rollout_episode(env):
     steps = list()
     for step in env.rollout():
@@ -190,25 +190,21 @@ def rollout_episode(env):
 
     return steps
 
-def get_episode(env, episode_dir, evaluate=False, incomplete_ok=False):
-    """
-    evaluate      : not generating episodes, evaluating some trained policy. no saving
-    incomplete_ok : get incomplete episodes; use to train lane-following via DAgger efficiently
-    """
-    if evaluate:
+def get_episode(env, episode_dir):
+    if env.evaluate:
         rollout_episode(env)
         return
 
     steps = list()
     while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
         steps = rollout_episode(env)
-        if incomplete_ok:
-            #print(len(steps), bool(env.env.get_metrics()['success']))
-            break
+        if DEBUG:
+            print('TRY AGAIN')
+            print(len(steps), bool(env.env.get_metrics()['success']))
+            print()
 
-        #print('TRY AGAIN')
-        #print(len(steps), bool(env.env.get_metrics()['success']))
-        #print()
+        if env.task == 'dontcrash': # truly Markovian
+            break
 
     stats = list()
     for i, step in enumerate(steps):
@@ -238,12 +234,13 @@ def get_episode(env, episode_dir, evaluate=False, incomplete_ok=False):
     pd.DataFrame([info]).to_csv(episode_dir / 'info.csv', index=False)
 
 if __name__ == '__main__':
+    DEBUG = True
+
     parser = argparse.ArgumentParser()
-    # TODO: take model_path and config_path
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
-    parser.add_argument('--input_type', choices=models.keys(), required=True)
-    parser.add_argument('--incomplete_ok', action='store_true')
+    parser.add_argument('--task', choices=TASKS, required=True)
+    parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--evaluate', action='store_true')
     args = parser.parse_args()
 
@@ -252,13 +249,16 @@ if __name__ == '__main__':
     if (args.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(args.input_type, evaluate=args.evaluate)
+    env = Rollout(args.task, args.proxy)
+    if args.evaluate:
+        env.eval()
+
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
         episode_dir = args.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir, args.evaluate, incomplete_ok=args.incomplete_ok)
+        get_episode(env, episode_dir)
 
         print(f'[!] finish ep {ep:06}')
         for m, v in env.env.get_metrics().items():

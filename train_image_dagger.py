@@ -15,34 +15,29 @@ import pandas as pd
 
 from PIL import Image, ImageDraw
 
-from model import *
-from eval import _get_network, NETWORKS
-from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import models, Rollout, get_episode
+from model import get_model
+from habitat_dataset import get_dataset, HabitatDataset, ACTIONS
+from habitat_wrapper import TASKS, MODELS, Rollout, get_episode
 
 
 def validate(net, env, config):
+    NUM_EPISODES = 15
+    VIDEO_FREQ   = 3
+
+    env.eval()
     net.eval()
-    env.model = net
-    env.evaluate = True
 
     losses = list()
-    criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
+    criterion = torch.nn.BCEWithLogitsLoss()
     tick = time.time()
 
-    ACTIONS = torch.eye(4, device=config['device'])
-
-    # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
     total_lwns = 0
-    for ep in range(5): # episodes; 300/2000 = 0.15
-        loss = 0
+    for ep in range(NUM_EPISODES):
         images = []
-
-        longest_no_stuck = 0
-        j = 0
+        loss, lwns, j = 0, 0, 0
         for i, step in enumerate(env.rollout()):
             _action = step['pred_action_logits']
-            action = ACTIONS[step['true_action']].unsqueeze(dim=0)
+            action = ACTIONS[step['true_action']].clone().unsqueeze(dim=0)
 
             _action.to(config['device'])
             action.to(config['device'])
@@ -52,23 +47,19 @@ def validate(net, env, config):
             losses.append(loss_mean.item())
 
             if step['is_stuck']:
-                longest_no_stuck = max(longest_no_stuck, j)
+                lwns = max(lwns, j)
                 j = 0
             j += 1
 
-            if ep % 1 == 0:
+            if ep % VIDEO_FREQ == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
-        total_lwns += longest_no_stuck
-        metrics = {
-            'loss': loss / (i+1),
-            'images_per_second': i / (time.time() - tick)
-        }
+        total_lwns += lwns
+        if ep == NUM_EPISODES - 1 and config['teacher']['teacher_args'] == 'dontcrash':
+            metrics['LWNS'] = total_lwns / NUM_EPISODES
 
-        if ep == 4:
-            metrics['longest_with_no_stuck'] = total_lwns / (ep+1) # running avg
-
-        if ep % 1 == 0:
+        metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
+        if ep % VIDEO_FREQ == 0:
             metrics[f'video_{ep}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
         wandb.log(
@@ -81,52 +72,61 @@ def validate(net, env, config):
 
 
 def train(net, env, data, optim, config):
-    net.train()
-    env.evaluate = False
+    if config['dagger']:
+        env.eval()
+
+        # allow longer episodes as training progresses
+        #env.max_episode_length = (wandb.run.summary['epoch'] + 1) * 20
+
+        # rollout some datasets; aggregate
+        summary_file = config['data_args']['dagger_dataset_dir'] / 'summary.csv'
+        summary = defaultdict(float)
+        summary['ep'] = 1
+        if summary_file.exists():
+            summary = pd.read_csv(summary_file).iloc[0]
+
+        num_episodes = 0
+        while num_episodes < config['data_args']['episodes_per_epoch']:
+            episode_dir = config['data_args']['dagger_dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
+            if episode_dir.exists():
+                shutil.rmtree(episode_dir, ignore_errors=True)
+
+            episode_dir.mkdir(parents=True, exist_ok=True)
+            get_episode(env, episode_dir)
+            data.add_episode(HabitatDataset(episode_dir))
+
+            num_episodes += 1
+
+        summary['ep'] += num_episodes
+        pd.DataFrame([summary]).to_csv(summary_file, index=False)
+
+        for i, episode in enumerate(data.episodes.datasets):
+            episode.episode_idx = i
+
+        # cleanup after dagger; make student trainable
+        data.post_dagger()
+
+        episode_loss = np.zeros(len(data.episodes.datasets))
+        episode_step = np.ones(len(data.episodes.datasets)) # prevent divide by zero
 
     losses = list()
-    criterion = torch.nn.BCEWithLogitsLoss() # if 'ddppo' in config['network'] else torch.nn.L1Loss(reduction='none')
+    criterion = torch.nn.BCEWithLogitsLoss()
     tick = time.time()
 
-    summary = defaultdict(float)
-    summary['ep'] = 1
-    if (config['data_args']['dataset_dir'] / 'summary.csv').exists():
-        summary = pd.read_csv(config['data_args']['dataset_dir'] / 'summary.csv').iloc[0]
-
-    # rollout some datasets; aggregate
-    num_samples, num_episodes = 0, 0
-    while not (num_samples > 1000 and num_episodes > 50): # until both of these conditions are met...
-        episode_dir = config['data_args']['dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
-        if episode_dir.exists():
-            shutil.rmtree(episode_dir, ignore_errors=True)
-        episode_dir.mkdir(parents=True, exist_ok=True)
-
-        get_episode(env, episode_dir, evaluate=False, incomplete_ok=True)
-        episode = HabitatDataset(episode_dir, apply_transform=config['data_args']['apply_transform'])
-        data.add_episode(episode)
-        num_samples += len(episode)
-        num_episodes += 1
-        summary['ep'] += 1
-
-        pd.DataFrame([summary]).to_csv(config['data_args']['dataset_dir'] / 'summary.csv', index=False)
-
-    for i, episode in enumerate(data.episodes.datasets):
-        episode.episode_idx = i
-
-    # cleanup after dagger
-    data.post_dagger()
-
-    episode_loss = np.zeros(len(data.episodes.datasets))
-    episode_step = np.ones(len(data.episodes.datasets)) # prevent divide by zero
+    net.train()
     for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
 
-        _action = net((rgb,) if 'direct' in config['network'] else (rgb, meta))
+        if config['student_args']['conditional']:
+            _action = net((rgb, meta))
+        else:
+            _action = net((rgb,))
 
         loss = criterion(_action, action)
-        episode_loss[episode_idx] += loss.detach().cpu().numpy() # unnormalized
-        episode_step[episode_idx] += 1
+        if config['dagger']:
+            episode_loss[episode_idx] += loss.detach().cpu().numpy() # unnormalized
+            episode_step[episode_idx] += 1
 
         loss_mean = loss.mean()
         losses.append(loss_mean.item())
@@ -147,13 +147,14 @@ def train(net, env, data, optim, config):
 
         tick = time.time()
 
-    # normalize episode losses
-    normalized_episode_loss = np.divide(episode_loss, episode_step)
-    for i, episode in enumerate(data.episodes.datasets):
-        episode.loss = normalized_episode_loss[i]
+    if config['dagger']:
+        # normalize episode losses
+        normalized_episode_loss = np.divide(episode_loss, episode_step)
+        for i, episode in enumerate(data.episodes.datasets):
+            episode.loss = normalized_episode_loss[i]
 
-    # balance heap
-    data.post_train()
+        # balance heap
+        data.post_train()
 
     return np.mean(losses)
 
@@ -173,8 +174,13 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = _get_network(config['network']).to(config['device'])
-    data_train = get_dataset(**config['data_args'])
+    net = get_model(**config['student_args']).to(config['device'])
+    data_train, _ = get_dataset(**config['data_args'])
+
+    (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
+    ACTIONS.to(config['device'])
+
+    env = Rollout(**config['teacher_args'], model=net)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -182,7 +188,9 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75],
             gamma=0.5)
 
-    wandb.init(project='habitat-ppo-depth-student-dagger', config=config, id=config['run_name'], resume='auto')
+    wandb.init(project='habitat-{}-{}-student'.format(
+        config['teacher_args']['task'], config['teacher_args']['proxy']
+        ), config=config, id=config['run_name'], resume='auto')
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
 
     if wandb.run.resumed:
@@ -191,7 +199,6 @@ def main(config):
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
-    env = Rollout(config['teacher_args']['input_type'], dagger=True, model=net)
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch'], config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
@@ -217,23 +224,26 @@ def main(config):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--network', choices=NETWORKS, required=True)
 
     parser.add_argument('--max_epoch', type=int, default=100)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
-    # Model args.
-    parser.add_argument('--resnet_model', default='SE-ResNeXt-50')
-    parser.add_argument('--pretrained', default=False, action='store_true')
+    # Teacher args.
+    parser.add_argument('--teacher_task', choices=TASKS, required=True)
+    parser.add_argument('--teacher_proxy', choices=MODELS.keys(), required=True)
+
+    # Student args.
+    parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
+    parser.add_argument('--conditional', action='store_true')
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--per_epoch', type=int, required=True)
-    parser.add_argument('--seeded', action='store_true')
-
-    # Teacher args.
-    parser.add_argument('--input_type', choices=models.keys(), required=True)
+    parser.add_argument('--dagger', action='store_true')
+    parser.add_argument('--capacity', type=int, default=1000)         # if DAgger
+    parser.add_argument('--episodes_per_epoch', type=int, default=50) # if DAgger
+    parser.add_argument('--dagger_dataset_dir', type=Path)            # if DAgger
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -241,7 +251,11 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size', 'per_epoch', 'seeded']
+    keys = [
+        'resnet_model', 'conditional', 'lr', 'weight_decay', # student: model, training
+        'dataset_size', 'batch_size', 'capacity',            # dataset: training student
+        'episodes_per_epoch',                                # dataset: generating via teacher
+        'teacher_task', 'teacher_proxy', 'dagger']           # teacher: proxy task, dagger
     run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v6.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
@@ -251,25 +265,31 @@ if __name__ == '__main__':
             'run_name': run_name,
             'max_epoch': parsed.max_epoch,
             'checkpoint_dir': checkpoint_dir,
-            'network': parsed.network,
+            'dagger': parsed.dagger,
+
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
-            'model_args': {
+            'teacher_args': {
+                'task': parsed.teacher_task,
+                'proxy': parsed.teacher_proxy,
+                'dagger': parsed.dagger
+                },
+
+            'student_args': {
                 'resnet_model': parsed.resnet_model,
-                'pretrained': parsed.pretrained,
-                'input_channel': 3
+                'conditional': parsed.conditional
                 },
 
             'data_args': {
                 'dataset_dir': parsed.dataset_dir,
+                'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
-                'apply_transform': 'ddppo' not in parsed.network,
-                'dagger': True,
-                'capacity': 2000
-                },
 
-            'teacher_args': {
-                'input_type': parsed.input_type
+                'dagger': parsed.dagger,
+                'capacity': parsed.capacity,
+                'per_epoch': parsed.per_epoch,
+
+                'dagger_dataset_dir': parsed.dagger_dataset_dir
                 },
 
             'optimizer_args': {

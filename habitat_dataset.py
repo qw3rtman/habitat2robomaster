@@ -16,14 +16,17 @@ from utils import StaticWrap, DynamicWrap
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_workers=4, apply_transform=True, **kwargs):
+def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_workers=4, **kwargs):
 
     def make_dataset(is_train):
         data = list()
         train_or_val = 'train' if is_train else 'val'
 
-        for episode_dir in (Path(dataset_dir) / train_or_val).iterdir():
-            data.append(HabitatDataset(episode_dir, apply_transform=apply_transform, is_seed=dagger))
+        episodes = list((Path(dataset_dir) / train_or_val).iterdir())
+        num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episodes)))
+
+        for episode_dir in episodes[:num_episodes]:
+            data.append(HabitatDataset(episode_dir, is_seed=dagger))
 
         print('%s: %d' % (train_or_val, len(data)))
 
@@ -32,16 +35,11 @@ def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_wo
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
-    train_dataset = make_dataset(True)
-    if not dagger:
-        test_dataset = make_dataset(False)
-        return train_dataset, test_dataset
-
-    return train_dataset
+    return make_dataset(True), None if dagger else make_dataset(False)
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, apply_transform=True, is_seed=False):
+    def __init__(self, episode_dir, is_seed=False):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
@@ -50,7 +48,6 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.is_seed = is_seed
 
         self.episode_dir = episode_dir
-        self.apply_transform = apply_transform
 
         self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
         self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
@@ -73,10 +70,7 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
-        if self.apply_transform:
-            rgb = self.transform(rgb)
-        else:
-            rgb = torch.Tensor(np.uint8(rgb))
+        rgb    = torch.Tensor(np.uint8(rgb))
 
         #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = ACTIONS[self.actions[idx]].clone()

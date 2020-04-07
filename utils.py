@@ -39,7 +39,7 @@ class StaticWrap(object):
 
 
 class DynamicWrap(StaticWrap):
-    def __init__(self, data, batch_size, samples, num_workers, capacity=2000):
+    def __init__(self, data, batch_size, samples, num_workers, capacity=1000):
         """
         capacity : capacity of rollout episodes; true capacity is len(seeded) + capacity
         """
