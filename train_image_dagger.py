@@ -33,6 +33,7 @@ def validate(net, env, config):
     ACTIONS = torch.eye(4, device=config['device'])
 
     # NOTE: make actions based on our policy, evaluate/regress against PPOAgent policy
+    total_lwns = 0
     for ep in range(5): # episodes; 300/2000 = 0.15
         loss = 0
         images = []
@@ -58,11 +59,14 @@ def validate(net, env, config):
             if ep % 1 == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
+        total_lwns += longest_no_stuck
         metrics = {
             'loss': loss / (i+1),
-            'images_per_second': i / (time.time() - tick),
-            'longest_with_no_stuck': longest_no_stuck
+            'images_per_second': i / (time.time() - tick)
         }
+
+        if ep == 4:
+            metrics['longest_with_no_stuck'] = total_lwns / (ep+1) # running avg
 
         if ep % 1 == 0:
             metrics[f'video_{ep}'] = wandb.Video(np.array(images), fps=30, format='mp4')
@@ -225,6 +229,8 @@ if __name__ == '__main__':
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--per_epoch', type=int, required=True)
+    parser.add_argument('--seeded', action='store_true')
 
     # Teacher args.
     parser.add_argument('--input_type', choices=models.keys(), required=True)
@@ -235,8 +241,8 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size']
-    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v5.8'
+    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size', 'per_epoch', 'seeded']
+    run_name = '_'.join(str(getattr(parsed, x)) for x in keys) + '_v6.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

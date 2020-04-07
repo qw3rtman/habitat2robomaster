@@ -91,7 +91,7 @@ class Rollout:
         """
 
         # NOTE: for DDPPO-style models
-        rgb = torch.Tensor(np.uint8(observations[self.input_type])).unsqueeze(dim=0)
+        rgb = torch.Tensor(np.uint8(observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
 
         out = self.model((rgb,))
