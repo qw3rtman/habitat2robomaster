@@ -1,5 +1,5 @@
-from habitat_wrapper import Rollout, rollout_episode, MODELS, METRICS
-from model import *
+from habitat_wrapper import Rollout, rollout_episode, TASKS, MODELS, METRICS
+from model import get_model
 
 import argparse
 from collections import defaultdict
@@ -10,39 +10,38 @@ import cv2
 import pandas as pd
 from pathlib import Path
 from PIL import Image
+import yaml
 
-# TODO: FIX THIS WHOLE SCRIPT
+def get_model_args(model, key):
+    return yaml.load((model.parent / 'config.yaml').read_text())[key]['value']
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # TODO: take model_path and config_path
-    parser.add_argument('--model_path', type=Path, required=True)
-    parser.add_argument('--num_episodes', type=int, required=True)
-    parser.add_argument('--input_type', choices=MODELS.keys(), required=True)
-    parser.add_argument('--network', choices=NETWORKS, required=True)
-    parser.add_argument('--auto', action='store_true')
+    parser.add_argument('--num_episodes', '-n', type=int, default=5)
+    parser.add_argument('--model', '-m', type=Path, required=True)
+    parser.add_argument('--auto', '-a', action='store_true')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    net = _get_network(args.network).to(device) # TODO: read config.yaml, pass in model_args
+    net = get_model(**get_model_args(args.model, 'student_args')).to(device)
     print(device)
-    net.load_state_dict(torch.load(args.model_path, map_location=device))
+    net.load_state_dict(torch.load(args.model, map_location=device))
 
     summary = defaultdict(float)
     summary['ep'] = 1
-    if (args.model_path.parent / 'summary.csv').exists():
-        summary = pd.read_csv(args.model_path.parent / 'summary.csv').iloc[0]
+    if (args.model.parent / 'summary.csv').exists():
+        summary = pd.read_csv(args.model.parent / 'summary.csv').iloc[0]
 
-    env = Rollout(args.input_type, evaluate=True, model=net)
+    teacher_args = get_model_args(args.model, 'teacher_args')
+    teacher_args['dagger'] = False
+    env = Rollout(**teacher_args, model=net)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
-        longest_no_stuck = 0
-        j = 0
+        lwns, j = 0, 0
 
         steps = rollout_episode(env)
         for i, step in enumerate(steps):
-            #print(i)
-            #print()
+            lwns = max(lwns, j)
             if step['is_stuck']:
-                longest_no_stuck = max(longest_no_stuck, j)
                 j = 0
             j += 1
 
@@ -51,7 +50,7 @@ if __name__ == '__main__':
 
         print(f'[!] finish ep {ep:06}')
         print(env.env.get_metrics()['collisions'])
-        print('longest with no stucks: {}'.format(longest_no_stuck))
+        print(f'LWNS: {lwns}')
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
                 summary[m] += v
@@ -60,4 +59,4 @@ if __name__ == '__main__':
         print({k: v / ep for k, v in summary.items() if k in METRICS})
         print()
 
-        pd.DataFrame([summary]).to_csv(args.model_path.parent / 'summary.csv', index=False)
+        pd.DataFrame([summary]).to_csv(args.model.parent / 'summary.csv', index=False)
