@@ -178,15 +178,19 @@ class Rollout:
             p_d_rot = np.mean(d_rot)
 
             i += 1
-            if i >= self.max_episode_length and not self.evaluate:
-                break
+            #if i >= self.max_episode_length and not self.evaluate:
+                #break
 
-            observations = self.env.step(action)
+            if self.dagger and not self.evaluate and self.task == 'dontcrash': # wp 0.1, take the expert action
+                observations = self.env.step(true_action if np.random.random() < 0.05 else action)
+            else:
+                observations = self.env.step(action)
 
 # NOTE: storing in a list takes a lot of memory. keeps rgb on CUDA from rollout method
 def rollout_episode(env):
     steps = list()
-    for step in env.rollout():
+    for i, step in enumerate(env.rollout()):
+        #print(i)
         steps.append(step)
 
     return steps
@@ -204,7 +208,8 @@ def get_episode(env, episode_dir):
             print(len(steps), bool(env.env.get_metrics()['success']))
             print()
 
-        if env.task == 'dontcrash': # truly Markovian
+        if env.task == 'dontcrash' and len(steps) > 0: # truly Markovian
+            #print('retry...')
             break
 
     stats = list()
@@ -228,7 +233,7 @@ def get_episode(env, episode_dir):
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 
     info = env.env.get_metrics()
-    info['collisions'] = info['collisions']['count']
+    info['collisions'] = info['collisions']['count'] if info['collisions'] else 0
     info['start_pos_x'], info['start_pos_y'], info['start_pos_z']                      = env.env.current_episode.start_position
     info['start_rot_i'], info['start_rot_j'], info['start_rot_k'], info['start_rot_l'] = env.env.current_episode.start_rotation
     info['end_pos_x'], info['end_pos_y'], info['end_pos_z']                            = env.env.current_episode.goals[0].position

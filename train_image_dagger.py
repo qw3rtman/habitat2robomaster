@@ -24,7 +24,7 @@ def validate(net, env, config):
     NUM_EPISODES = 15
     VIDEO_FREQ   = 3
 
-    env.eval()
+    env.train()
     net.eval()
 
     losses = list()
@@ -45,20 +45,21 @@ def validate(net, env, config):
             loss += loss_mean.item()
             losses.append(loss_mean.item())
 
+            lwns = max(lwns, j)
             if step['is_stuck']:
-                lwns = max(lwns, j)
                 j = 0
             j += 1
 
             if ep % VIDEO_FREQ == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
+        metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
+
         total_lwns += lwns
         if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
             metrics['LWNS'] = total_lwns / NUM_EPISODES
 
-        metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
-        if ep % VIDEO_FREQ == 0:
+        if ep % VIDEO_FREQ == 0 and len(images) > 0:
             metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
         wandb.log(
@@ -86,7 +87,7 @@ def train(net, env, data, optim, config):
 
         num_episodes = 0
         while num_episodes < config['data_args']['episodes_per_epoch']:
-            episode_dir = config['data_args']['dagger_dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']))
+            episode_dir = config['data_args']['dagger_dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']) + num_episodes)
             if episode_dir.exists():
                 shutil.rmtree(episode_dir, ignore_errors=True)
 
@@ -255,7 +256,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-vTEST3'
+    ])) + '-v5.6'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
