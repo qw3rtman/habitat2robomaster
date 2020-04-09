@@ -62,7 +62,9 @@ class DynamicWrap(StaticWrap):
             return
 
         if len(self.episodes.datasets) >= self.capacity:
-            evicted_episode = heapq.heappushpop(self.episodes.datasets, episode)
+            # we don't want to get back episode; this pops and then
+            # pushes (as opposed to heappushpop)
+            evicted_episode = heapq.heapreplace(self.episodes.datasets, episode)
             if not evicted_episode.is_seed:
                 shutil.rmtree(evicted_episode.episode_dir, ignore_errors=True)
         else:

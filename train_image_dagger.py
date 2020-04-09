@@ -24,8 +24,8 @@ all_lwns = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 def validate(net, env, data, config):
-    NUM_EPISODES = 50
-    VIDEO_FREQ   = 10
+    NUM_EPISODES = 200
+    VIDEO_FREQ   = 40
 
     env.train()
     net.eval()
