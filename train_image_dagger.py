@@ -12,7 +12,7 @@ import torch
 import torchvision
 import yaml
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 from PIL import Image, ImageDraw
 
@@ -20,6 +20,8 @@ from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, Rollout, get_episode
 
+all_lwns = []
+c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 def validate(net, env, data, config):
     NUM_EPISODES = 50
@@ -82,13 +84,30 @@ def validate(net, env, data, config):
 
         metrics = {}
         if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
+            all_lwns.append(lwns)
+
             metrics['lwns_mean'] = np.mean(lwns)
             metrics['lwns_std'] = np.std(lwns)
             metrics['lwns_median'] = np.median(lwns)
             metrics['lwns'] = wandb.Histogram(lwns)
 
-            plt.boxplot(lwns)
-            metrics['lwns_box'] = plt
+            fig = go.Figure(data=[go.Box(y=data,
+                boxpoints='all',
+                jitter=0,
+                pointpos=-1.6,
+                name=f"{wandb.run.summary['epoch']+i+1}",
+                marker_color=c[i]
+            ) for i, data in enumerate(all_lwns[-20:])])
+
+            fig.update_layout(
+                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=2),
+                yaxis=dict(zeroline=False, gridcolor='white'),
+                paper_bgcolor='rgb(233,233,233)',
+                plot_bgcolor='rgb(233,233,233)',
+                showlegend=False
+            )
+
+            metrics['lwns_box'] = fig
 
         if ep % VIDEO_FREQ == 0 and len(images) > 0:
             metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
@@ -236,7 +255,7 @@ def main(config):
 
         loss_train = train(net, env, data_train, optim, config)
         with torch.no_grad():
-            loss_val = validate(net, env, config)
+            loss_val = validate(net, env, data_val, config)
 
         scheduler.step()
 
@@ -286,7 +305,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-v5.6'
+    ])) + '-vTEST4'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
