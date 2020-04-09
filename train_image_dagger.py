@@ -12,6 +12,7 @@ import torch
 import torchvision
 import yaml
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from PIL import Image, ImageDraw
 
@@ -20,9 +21,9 @@ from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, Rollout, get_episode
 
 
-def validate(net, env, config):
-    NUM_EPISODES = 15
-    VIDEO_FREQ   = 3
+def validate(net, env, data, config):
+    NUM_EPISODES = 50
+    VIDEO_FREQ   = 10
 
     env.train()
     net.eval()
@@ -31,11 +32,37 @@ def validate(net, env, config):
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
-    total_lwns = 0
+    for i, (rgb, _, _, action, _, _) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
+        rgb = rgb.to(config['device'])
+        action = torch.LongTensor(action).to(config['device'])
+
+        if config['student_args']['conditional']:
+            _action = net((rgb, meta))
+        else:
+            _action = net((rgb,))
+
+        loss = criterion(_action, action)
+
+        loss_mean = loss.mean()
+        losses.append(loss_mean.item())
+
+        metrics = {
+            'loss': loss_mean.item(),
+            'images_per_second': rgb.shape[0] / (time.time() - tick)
+        }
+
+        tick = time.time()
+
+        wandb.log(
+                {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
+                step=wandb.run.summary['step'])
+
+    lwns = np.zeros(NUM_EPISODES)
     for ep in range(NUM_EPISODES):
         images = []
-        loss, lwns, j = 0, 0, 0
-        for i, step in enumerate(env.rollout()):
+        longest = 0
+
+        for step in env.rollout():
             _action = step['pred_action_logits']
             _action.to(config['device'])
 
@@ -45,19 +72,23 @@ def validate(net, env, config):
             loss += loss_mean.item()
             losses.append(loss_mean.item())
 
-            lwns = max(lwns, j)
+            lwns[ep] = max(lwns[ep], longest)
             if step['is_stuck']:
-                j = 0
-            j += 1
+                longest = 0
+            longest += 1
 
             if ep % VIDEO_FREQ == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
-        metrics = {'loss': loss/(i+1), 'images_per_second': (i+1)/(time.time()-tick)}
-
-        total_lwns += lwns
+        metrics = {}
         if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
-            metrics['LWNS'] = total_lwns / NUM_EPISODES
+            metrics['lwns_mean'] = np.mean(lwns)
+            metrics['lwns_std'] = np.std(lwns)
+            metrics['lwns_median'] = np.median(lwns)
+            metrics['lwns'] = wandb.Histogram(lwns)
+
+            plt.boxplot(lwns)
+            metrics['lwns_box'] = plt
 
         if ep % VIDEO_FREQ == 0 and len(images) > 0:
             metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
@@ -65,8 +96,6 @@ def validate(net, env, config):
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
-
-        tick = time.time()
 
     return np.mean(losses)
 
@@ -103,7 +132,7 @@ def train(net, env, data, optim, config):
         for i, episode in enumerate(data.episodes.datasets):
             episode.episode_idx = i
 
-        # cleanup after dagger; make student trainable
+        # cleanup after dagger
         data.post_dagger()
 
         episode_loss = np.zeros(len(data.episodes.datasets))
@@ -137,9 +166,10 @@ def train(net, env, data, optim, config):
 
         wandb.run.summary['step'] += 1
 
-        metrics = dict()
-        metrics['loss'] = loss_mean.item()
-        metrics['images_per_second'] = rgb.shape[0] / (time.time() - tick)
+        metrics = {
+            'loss': loss_mean.item(),
+            'images_per_second': rgb.shape[0] / (time.time() - tick)
+        }
 
         wandb.log(
                 {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
@@ -175,7 +205,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = get_model(**config['student_args']).to(config['device'])
-    data_train, _ = get_dataset(**config['data_args'])
+    data_train, data_val = get_dataset(**config['data_args'])
 
     if config['dagger']:
         (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)

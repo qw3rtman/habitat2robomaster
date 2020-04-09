@@ -35,7 +35,7 @@ def get_dataset(dataset_dir, dagger=False, capacity=2000, batch_size=128, num_wo
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
-    return make_dataset(True), None# if dagger else make_dataset(False)
+    return make_dataset(True), make_dataset(False)
 
 
 class HabitatDataset(torch.utils.data.Dataset):
