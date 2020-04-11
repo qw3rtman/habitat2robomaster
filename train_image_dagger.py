@@ -323,7 +323,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-v7.0'
+    ])) + '-v7.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

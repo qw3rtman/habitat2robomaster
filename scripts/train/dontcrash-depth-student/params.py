@@ -8,13 +8,13 @@ for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
         for batch_size in [64, 128]: # 32
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [5e-5]: # 5e-4
-                    for dagger in ['', '--dagger']:
+                    for dagger in ['', '--dagger'] if dataset_size == 1.0 else ['']:
                         for conditional_flag, conditional_name in [('', 'direct')]:#'--conditional']
-                            for episodes_per_epoch in [50]:
+                            for episodes_per_epoch in [100]:
                                 for capacity in [1000]:
                                     job = f"""python train_image_dagger.py \\
     --resnet_model {resnet_model} \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/ppo_depth \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth \\
     --dataset_size {dataset_size} \\
     --teacher_task dontcrash \\
     --teacher_proxy depth \\
