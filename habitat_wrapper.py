@@ -20,9 +20,8 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat_baselines.agents.ppo_agents import PPOAgent
 from gym.spaces import Box, Dict, Discrete
 
-DEBUG = False
-
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
+MODES = ['student', 'teacher', 'both']
 METRICS = ['distance_to_goal', 'success', 'spl']
 
 jitter_threshold = {
@@ -31,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -43,12 +42,15 @@ CONFIGS = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, model=None, dagger=False, max_episode_length=200, save_episode=True):
-        """
-        model:  evaluate via this model policy, if not None
-        dagger: evaluate both PPOAgent and model at each step
-        """
-        assert task in TASKS
+    def __init__(self, proxy, mode, student=None):
+        assert proxy in MODELS.keys()
+        assert mode in MODES
+        if mode in ['student', 'both']:
+            assert student is not None
+
+        self.proxy = proxy
+        self.mode = mode
+        self.student = student
 
         c = Config()
 
@@ -67,13 +69,6 @@ class Rollout:
 
         c.freeze()
 
-        self.task = task
-        self.proxy = proxy
-        self.dagger = dagger
-        self.model = model
-        self.max_episode_length = max_episode_length
-        self.save_episode = save_episode
-
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -81,139 +76,147 @@ class Rollout:
         self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
 
-        self.train()
-
-    # evaluating rollout driven by self.model
-    def eval(self):
-        self.evaluate = True
-        if self.model:
-            self.model.eval()
-
-    # generating data to train self.model
-    def train(self):
-        self.evaluate = False
-        if self.model:
-            self.model.eval()
-
-    def act_custom(self, observations):
+    def act_student(self):
         # NOTE: get CONDITIONAL from 11682f9
-        rgb = torch.Tensor(np.uint8(observations['rgb'])).unsqueeze(dim=0)
+        rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
 
         out = self.model((rgb,))
         return {'action': out[0].argmax().item()}, out # action, logits
 
-    def rollout(self):
+    def clean(self):
         self.agent.reset()
-        observations = self.env.reset()
+        self.observations = self.env.reset()
 
-        i = 0
+        self.i = 0
 
-        d_pos = deque(maxlen=10)
-        d_rot = deque(maxlen=10)
-        d_col = deque(maxlen=5)
+        self.d_pos = deque(maxlen=10)
+        self.d_rot = deque(maxlen=10)
+        self.d_col = deque(maxlen=5)
 
-        p_d_pos = 0
-        p_d_rot = 0
+        self.prev_d_pos = 0
+        self.prev_d_rot = 0
 
         state = self.env.sim.get_agent_state()
-        p_pos = state.position
-        p_rot = state.rotation.components
-        p_col = self.env.get_metrics()['collisions']['is_collision'] if i > 0 else False
+        self.prev_pos = state.position
+        self.prev_rot = state.rotation.components
+
+    def is_slide(self):
+        collision = self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False
+        self.d_col.append(int(collision))
+
+        return self.i > 5 and np.min(self.d_col) == 1
+
+    # measure velocity and jitter
+    def is_stuck(self):
+        # curr
+        self.d_pos.append(np.linalg.norm(self.state.position - self.prev_pos))
+        self.d_rot.append(np.linalg.norm(self.state.rotation.components - self.prev_rot))
+
+        dd_pos = abs(self.prev_d_pos - np.mean(self.d_pos))
+        dd_rot = abs(self.prev_d_rot - np.mean(self.d_rot))
+
+        # post
+        #self.prev_pos = self.state.position
+        #self.prev_rot = self.state.rotation.components
+
+        self.prev_d_pos = np.mean(self.d_pos)
+        self.prev_d_rot = np.mean(self.d_rot)
+
+        return self.i > 10 and ((np.max(self.d_pos) == 0 and np.max(self.d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.proxy])
+
+    def get_action(self):
+        if self.mode == 'student':
+            student_action, _ = self.act_student(self.observations)
+            return {'student': student_action}
+
+        if self.mode == 'teacher':
+            teacher_action = self.agent.act(self.observations)
+            return {'teacher': teacher_action}
+
+        if self.mode == 'both':
+            teacher_action = self.agent.act(self.observations)
+            student_action, student_logits = self.act_student(self.observations)
+            return {
+                'teacher': teacher_action,
+                'student': student_action,
+                'student_logits': student_logits
+            }
+
+    def rollout(self):
+        self.clean()
 
         while not self.env.episode_over:
-            if self.dagger:
-                true_action = self.agent.act(observations)                 # supervision
-                action, pred_action_logits = self.act_custom(observations) # predicted; rollout with this one
-            else:
-                if self.model: # custom network (i.e: student)
-                    action, _ = self.act_custom(observations)
-                else: # habitat network
-                    action = self.agent.act(observations)
+            action = self.get_action()
+            self.state = self.env.sim.get_agent_state()
 
-            # NOTE: stop command
-            if self.task == 'dontcrash' and action['action'] == 0:
-                break
-
-            state = self.env.sim.get_agent_state()
-
-            position  = state.position
-            rotation  = state.rotation.components
-            collision = self.env.get_metrics()['collisions']['is_collision'] if i > 0 else False
-
-            d_pos.append(np.linalg.norm(position - p_pos))
-            d_rot.append(np.linalg.norm(rotation - p_rot))
-            d_col.append(int(collision))
-
-            dd_pos = abs(p_d_pos - np.mean(d_pos))
-            dd_rot = abs(p_d_rot - np.mean(d_rot))
-
-            # measure velocity and jitter
-            is_stuck = i > 10 and ((np.max(d_pos) == 0 and np.max(d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.proxy])
-            if is_stuck:
-                if not self.evaluate:
-                    break
-
-            is_slide = i > 5 and np.min(d_col) == 1
-            if is_slide:
-                if not self.evaluate:
-                    break
-
-            yield {
-                'step': i,
-                'action': action['action'], # what we took
-                'pred_action_logits': pred_action_logits if self.dagger else None, # predicted logits
-                'true_action': true_action['action'] if self.dagger else None,
-                'position': position,
-                'rotation': rotation,
-                'collision': collision,
-                'rgb': observations['rgb'],
-                'depth': observations['depth'],
-                #'semantic': observations['semantic'],
+            is_stuck = self.is_stuck()
+            is_slide = self.is_slide()
+            sample = {
+                'step': self.i,
+                'action': action,
+                'position': self.state.position,
+                'rotation': self.state.rotation.components,
+                'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
+                'rgb': self.observations['rgb'],
+                'depth': self.observations['depth'],
+                #'semantic': self.observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
             }
 
-            p_d_pos = np.mean(d_pos)
-            p_d_rot = np.mean(d_rot)
+            # ending early
+            """
+            if self.mode == 'teacher':
+                if action[self.mode]['action'] == 0 or is_stuck or is_slide:
+                    break
+            """
 
-            i += 1
-            #if i >= self.max_episode_length and not self.evaluate:
-                #break
+            yield sample
+            self.i += 1
 
-            if self.dagger and not self.evaluate and self.task == 'dontcrash': # wp 0.1, take the expert action
-                observations = self.env.step(true_action if np.random.random() < 0.05 else action)
+            if self.mode == 'both': # wp 0.1, take the expert action
+                self.observations = self.env.step(action['teacher'] if np.random.random() < 0.05 else action['student'])
             else:
-                observations = self.env.step(action)
+                self.observations = self.env.step(action[self.mode])
 
-# NOTE: storing in a list takes a lot of memory. keeps rgb on CUDA from rollout method
 def rollout_episode(env):
     steps = list()
     for i, step in enumerate(env.rollout()):
-        #print(i)
         steps.append(step)
+        # NOTE: storing in a list takes a lot of memory. keeps rgb on CUDA from rollout method
+        if i == 200:
+            break
 
     return steps
 
-def get_episode(env, episode_dir):
-    if env.evaluate and not env.save_episode:
-        rollout_episode(env)
-        return
+def get_episode(env):
+    env.clean()
 
-    steps = list()
-    while len(steps) < 30 or not bool(env.env.get_metrics()['success']):
-        steps = rollout_episode(env)
-        if DEBUG:
-            print('TRY AGAIN')
-            print(len(steps), bool(env.env.get_metrics()['success']))
-            print()
+    #if env.mode in ['student', 'both']: # eval, DAgger
+    return env.rollout()
 
-        if env.task == 'dontcrash' and len(steps) > 0: # truly Markovian
-            #print('retry...')
-            break
+    """
+    if env.mode == 'teacher': # dataset generation
+        steps = list()
+        while not bool(env.env.get_metrics()['success']): #or len(steps) < 30
+            steps = rollout_episode(env)
 
+        return steps
+    """
+
+def save_episode(env, episode_dir):
     stats = list()
-    for i, step in enumerate(steps):
+
+    lwns, longest = 0, 0
+    for i, step in enumerate(get_episode(env)):
+        lwns = max(lwns, longest)
+        if step['is_stuck'] or step['is_slide']:
+            longest = 0
+            if env.mode == 'teacher':
+                continue
+        longest += 1
+
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
 
@@ -233,21 +236,21 @@ def get_episode(env, episode_dir):
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 
     info = env.env.get_metrics()
+    info['lwns'] = lwns
     info['collisions'] = info['collisions']['count'] if info['collisions'] else 0
     info['start_pos_x'], info['start_pos_y'], info['start_pos_z']                      = env.env.current_episode.start_position
     info['start_rot_i'], info['start_rot_j'], info['start_rot_k'], info['start_rot_l'] = env.env.current_episode.start_rotation
     info['end_pos_x'], info['end_pos_y'], info['end_pos_z']                            = env.env.current_episode.goals[0].position
     pd.DataFrame([info]).to_csv(episode_dir / 'info.csv', index=False)
 
-if __name__ == '__main__':
-    DEBUG = True
 
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
-    parser.add_argument('--task', choices=TASKS, required=True)
+    #parser.add_argument('--task', choices=TASKS, required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
-    parser.add_argument('--evaluate', action='store_true')
+    parser.add_argument('--mode', choices=MODES, required=True)
     args = parser.parse_args()
 
     summary = defaultdict(float)
@@ -255,16 +258,13 @@ if __name__ == '__main__':
     if (args.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(args.task, args.proxy)
-    if args.evaluate:
-        env.eval()
-
+    env = Rollout(args.proxy, args.mode)
     for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
         episode_dir = args.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        get_episode(env, episode_dir)
+        save_episode(env, episode_dir)
 
         print(f'[!] finish ep {ep:06}')
         for m, v in env.env.get_metrics().items():

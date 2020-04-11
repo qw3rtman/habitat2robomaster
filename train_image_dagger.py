@@ -18,9 +18,10 @@ from PIL import Image, ImageDraw
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import TASKS, MODELS, Rollout, get_episode
+from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
 all_lwns = []
+all_lwns_norm = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 def validate(net, env, data, config):
@@ -34,6 +35,7 @@ def validate(net, env, data, config):
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
+    # static validation set
     for i, (rgb, _, _, action, _, _) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = torch.LongTensor(action).to(config['device'])
@@ -59,12 +61,15 @@ def validate(net, env, data, config):
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
-    lwns = np.zeros(NUM_EPISODES)
+    # rollout
+    lwns      = np.zeros(NUM_EPISODES)
+    lwns_norm = np.zeros(NUM_EPISODES)
     for ep in range(NUM_EPISODES):
         images = []
         longest = 0
 
-        for step in env.rollout():
+        i = 0
+        for step in get_episode(env):
             _action = step['pred_action_logits']
             _action.to(config['device'])
 
@@ -79,26 +84,27 @@ def validate(net, env, data, config):
                 longest = 0
             longest += 1
 
+            i += 1
+
             if ep % VIDEO_FREQ == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
+
+        lwns_norm[ep] = lwns[ep] / i
 
         metrics = {}
         if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
             all_lwns.append(lwns)
-
             metrics['lwns_mean'] = np.mean(lwns)
             metrics['lwns_std'] = np.std(lwns)
             metrics['lwns_median'] = np.median(lwns)
             metrics['lwns'] = wandb.Histogram(lwns)
-
             fig = go.Figure(data=[go.Box(y=data,
                 boxpoints='all',
                 jitter=0,
                 pointpos=-1.6,
-                name=f"{wandb.run.summary['epoch']+i+1}",
+                name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
                 marker_color=c[i]
             ) for i, data in enumerate(all_lwns[-20:])])
-
             fig.update_layout(
                 xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=2),
                 yaxis=dict(zeroline=False, gridcolor='white'),
@@ -106,8 +112,28 @@ def validate(net, env, data, config):
                 plot_bgcolor='rgb(233,233,233)',
                 showlegend=False
             )
-
             metrics['lwns_box'] = fig
+
+            all_lwns_norm.append(lwns_norm)
+            metrics['lwns_norm_mean'] = np.mean(lwns_norm)
+            metrics['lwns_norm_std'] = np.std(lwns_norm)
+            metrics['lwns_norm_median'] = np.median(lwns_norm)
+            metrics['lwns_norm'] = wandb.Histogram(lwns_norm)
+            fig = go.Figure(data=[go.Box(y=data,
+                boxpoints='all',
+                jitter=0,
+                pointpos=-1.6,
+                name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
+                marker_color=c[i]
+            ) for i, data in enumerate(all_lwns_norm[-20:])])
+            fig.update_layout(
+                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=2),
+                yaxis=dict(zeroline=False, gridcolor='white'),
+                paper_bgcolor='rgb(233,233,233)',
+                plot_bgcolor='rgb(233,233,233)',
+                showlegend=False
+            )
+            metrics['lwns_norm_box'] = fig
 
         if ep % VIDEO_FREQ == 0 and len(images) > 0:
             metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
@@ -140,7 +166,7 @@ def train(net, env, data, optim, config):
                 shutil.rmtree(episode_dir, ignore_errors=True)
 
             episode_dir.mkdir(parents=True, exist_ok=True)
-            get_episode(env, episode_dir)
+            save_episode(env, episode_dir)
             data.add_episode(HabitatDataset(episode_dir))
 
             num_episodes += 1

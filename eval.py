@@ -1,4 +1,4 @@
-from habitat_wrapper import Rollout, rollout_episode, TASKS, MODELS, METRICS
+from habitat_wrapper import Rollout, METRICS
 from model import get_model
 
 import argparse
@@ -52,8 +52,7 @@ if __name__ == '__main__':
     for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
         lwns, j = 0, 0
 
-        steps = rollout_episode(env)
-        for i, step in enumerate(steps):
+        for i, step in enumerate(env.rollout()):
             lwns = max(lwns, j)
             if step['is_stuck']:
                 j = 0
