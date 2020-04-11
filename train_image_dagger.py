@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
+from habitat_wrapper import TASKS, MODELS, get_rollout, get_episode, save_episode
 
 all_lwns = []
 all_lwns_norm = []
@@ -28,8 +28,8 @@ def validate(net, env, data, config):
     NUM_EPISODES = 200
     VIDEO_FREQ   = 40
 
-    env.train()
     net.eval()
+    env.mode = 'student'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
@@ -147,7 +147,8 @@ def validate(net, env, data, config):
 
 def train(net, env, data, optim, config):
     if config['dagger']:
-        env.eval()
+        net.eval()
+        env.mode = 'both'
 
         # allow longer episodes as training progresses
         #env.max_episode_length = (wandb.run.summary['epoch'] + 1) * 20
@@ -188,6 +189,7 @@ def train(net, env, data, optim, config):
     tick = time.time()
 
     net.train()
+    env.mode = 'teacher'
     for i, (rgb, _, _, action, _, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = torch.LongTensor(action).to(config['device'])
@@ -255,7 +257,7 @@ def main(config):
     if config['dagger']:
         (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
 
-    env = Rollout(**config['teacher_args'], model=net)
+    env = get_rollout(**config['teacher_args'], student=net)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -346,8 +348,7 @@ if __name__ == '__main__':
 
             'teacher_args': {
                 'task': parsed.teacher_task,
-                'proxy': parsed.teacher_proxy,
-                'dagger': True #parsed.dagger
+                'proxy': parsed.teacher_proxy
                 },
 
             'student_args': {

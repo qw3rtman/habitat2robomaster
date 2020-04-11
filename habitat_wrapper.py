@@ -41,6 +41,12 @@ CONFIGS = {
     'depth': 'depth_test.yaml'
 }
 
+def get_rollout(task, proxy, student=None):
+    assert task in TASKS
+
+    if task == 'dontcrash':
+        return DontCrashRollout(proxy, 'teacher', student=student)
+
 class Rollout:
     def __init__(self, proxy, mode, student=None):
         assert proxy in MODELS.keys()
@@ -81,7 +87,7 @@ class Rollout:
         rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
 
-        out = self.model((rgb,))
+        out = self.student((rgb,))
         return {'action': out[0].argmax().item()}, out # action, logits
 
     def clean(self):
@@ -176,7 +182,7 @@ class Rollout:
             self.i += 1
 
             if self.mode == 'both': # wp 0.1, take the expert action
-                self.observations = self.env.step(action['teacher'] if np.random.random() < 0.05 else action['student'])
+                self.observations = self.env.step(action['student'])# if np.random.random() > 0.05 else action['teacher'])
             else:
                 self.observations = self.env.step(action[self.mode])
 
@@ -208,14 +214,17 @@ def get_episode(env):
 def save_episode(env, episode_dir):
     stats = list()
 
-    lwns, longest = 0, 0
+    lwns, longest, length = 0, 0, 0
     for i, step in enumerate(get_episode(env)):
-        lwns = max(lwns, longest)
+        length += 1
+
         if step['is_stuck'] or step['is_slide']:
             longest = 0
-            if env.mode == 'teacher':
+            if env.mode in ['teacher', 'both']:
                 continue
         longest += 1
+
+        lwns = max(lwns, longest)
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
@@ -237,6 +246,7 @@ def save_episode(env, episode_dir):
 
     info = env.env.get_metrics()
     info['lwns'] = lwns
+    info['lwns_norm'] = lwns / length
     info['collisions'] = info['collisions']['count'] if info['collisions'] else 0
     info['start_pos_x'], info['start_pos_y'], info['start_pos_z']                      = env.env.current_episode.start_position
     info['start_rot_i'], info['start_rot_j'], info['start_rot_k'], info['start_rot_l'] = env.env.current_episode.start_rotation
