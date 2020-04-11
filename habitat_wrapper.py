@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -228,10 +228,10 @@ def save_episode(env, episode_dir):
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
-        if self.mode == 'both':
+        if env.mode == 'both':
             action = step['action']['teacher']
         else:
-            action = step['action'][self.mode]
+            action = step['action'][env.mode]
 
         stats.append({
             'step': step['step'],
