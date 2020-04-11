@@ -18,7 +18,7 @@ for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
     --dataset_size {dataset_size} \\
     --teacher_task dontcrash \\
     --teacher_proxy depth \\
-    --dagger_dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth/{resnet_model}-{conditional_name}-dagger-{episodes_per_epoch}-{capacity}-{dataset_size}-{batch_size}-{lr}-{weight_decay} \\
+    --dagger_dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth-dagger/{resnet_model}-{conditional_name}-dagger-{episodes_per_epoch}-{capacity}-{dataset_size}-{batch_size}-{lr}-{weight_decay} \\
     --lr {lr} \\
     --batch_size {batch_size} \\
     --weight_decay {weight_decay} \\

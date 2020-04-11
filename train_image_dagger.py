@@ -25,8 +25,8 @@ all_lwns_norm = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 def validate(net, env, data, config):
-    NUM_EPISODES = 200
-    VIDEO_FREQ   = 40
+    NUM_EPISODES = 5#200
+    VIDEO_FREQ   = 1#40
 
     net.eval()
     env.mode = 'student'
@@ -333,7 +333,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-vTEST4'
+    ])) + '-vTEST12'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

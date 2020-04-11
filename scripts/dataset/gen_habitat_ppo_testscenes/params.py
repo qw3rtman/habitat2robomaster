@@ -3,15 +3,15 @@ from pathlib import Path
 
 jobs = list()
 
-for input_type, num_episodes in [('rgb', 1500), ('depth', 600)]:
-    job = f"""python habitat_wrapper.py \\
-    --input_type {input_type} \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/ppo_{input_type}  \\
-    --num_episodes {num_episodes}
+job = f"""python habitat_wrapper.py \\
+    --mode teacher \\
+    --proxy depth \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth \\
+    --num_episodes 1200
 """
 
-    jobs.append(job)
-    print(job)
+jobs.append(job)
+print(job)
 
 print(len(jobs))
 JOBS = jobs[:len(jobs)]

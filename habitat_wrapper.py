@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -45,7 +45,7 @@ def get_rollout(task, proxy, student=None):
     assert task in TASKS
 
     if task == 'dontcrash':
-        return DontCrashRollout(proxy, 'teacher', student=student)
+        return Rollout(proxy, 'teacher', student=student)
 
 class Rollout:
     def __init__(self, proxy, mode, student=None):
@@ -133,7 +133,7 @@ class Rollout:
 
     def get_action(self):
         if self.mode == 'student':
-            student_action, _ = self.act_student(self.observations)
+            student_action, _ = self.act_student()
             return {'student': student_action}
 
         if self.mode == 'teacher':
@@ -142,7 +142,7 @@ class Rollout:
 
         if self.mode == 'both':
             teacher_action = self.agent.act(self.observations)
-            student_action, student_logits = self.act_student(self.observations)
+            student_action, student_logits = self.act_student()
             return {
                 'teacher': teacher_action,
                 'student': student_action,
@@ -228,10 +228,14 @@ def save_episode(env, episode_dir):
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
+        if self.mode == 'both':
+            action = step['action']['teacher']
+        else:
+            action = step['action'][self.mode]
 
         stats.append({
             'step': step['step'],
-            'action': step['action'],
+            'action': action['action'],
             'collision': step['collision'],
             'x': step['position'][0],
             'y': step['position'][1],
