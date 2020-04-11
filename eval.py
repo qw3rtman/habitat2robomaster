@@ -22,7 +22,6 @@ def get_env(model):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    teacher_args['dagger'] = False
     env = Rollout(**teacher_args, model=net)
 
     return env
@@ -50,18 +49,19 @@ if __name__ == '__main__':
 
     env = get_env(model_path)
     for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
-        lwns, j = 0, 0
+        lwns, longest, length = 0, 0, 0
 
         for i, step in enumerate(env.rollout()):
-            lwns = max(lwns, j)
+            lwns = max(lwns, longest)
             if step['is_stuck']:
-                j = 0
-            j += 1
+                longest = 0
+            longest += 1
+            length += 1
 
             cv2.imshow('rgb', step['rgb'])
             cv2.waitKey(10 if parsed.auto else 0)
 
-        print(f'[!] Finish Episode {ep:06}, LWNS: {lwns}\n')
+        print(f'[!] Finish Episode {ep:06}, LWNS: {lwns}, LWNS_norm: {lwns/length}\n')
         """
         print(env.env.get_metrics()['collisions'])
         for m, v in env.env.get_metrics().items():
