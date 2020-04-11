@@ -25,8 +25,8 @@ all_lwns_norm = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 def validate(net, env, data, config):
-    NUM_EPISODES = 5#200
-    VIDEO_FREQ   = 1#40
+    NUM_EPISODES = 200
+    VIDEO_FREQ   = 40
 
     net.eval()
     env.mode = 'student'
@@ -66,30 +66,18 @@ def validate(net, env, data, config):
     lwns_norm = np.zeros(NUM_EPISODES)
     for ep in range(NUM_EPISODES):
         images = []
-        longest = 0
-
-        i = 0
+        longest, length = 0, 0
         for step in get_episode(env):
-            _action = step['pred_action_logits']
-            _action.to(config['device'])
-
-            action = torch.LongTensor([step['true_action']]).to(config['device'])
-
-            loss_mean = criterion(_action, action).mean()
-            loss += loss_mean.item()
-            losses.append(loss_mean.item())
-
             lwns[ep] = max(lwns[ep], longest)
             if step['is_stuck']:
                 longest = 0
             longest += 1
-
-            i += 1
+            length += 1
 
             if ep % VIDEO_FREQ == 0:
                 images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
-        lwns_norm[ep] = lwns[ep] / i
+        lwns_norm[ep] = lwns[ep] / length
 
         metrics = {}
         if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
@@ -100,13 +88,14 @@ def validate(net, env, data, config):
             metrics['lwns'] = wandb.Histogram(lwns)
             fig = go.Figure(data=[go.Box(y=data,
                 boxpoints='all',
-                jitter=0,
+                boxmean=True,
+                jitter=0.1,
                 pointpos=-1.6,
                 name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
                 marker_color=c[i]
             ) for i, data in enumerate(all_lwns[-20:])])
             fig.update_layout(
-                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=2),
+                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
                 yaxis=dict(zeroline=False, gridcolor='white'),
                 paper_bgcolor='rgb(233,233,233)',
                 plot_bgcolor='rgb(233,233,233)',
@@ -121,14 +110,15 @@ def validate(net, env, data, config):
             metrics['lwns_norm'] = wandb.Histogram(lwns_norm)
             fig = go.Figure(data=[go.Box(y=data,
                 boxpoints='all',
-                jitter=0,
+                boxmean=True,
+                jitter=0.1,
                 pointpos=-1.6,
                 name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
                 marker_color=c[i]
             ) for i, data in enumerate(all_lwns_norm[-20:])])
             fig.update_layout(
-                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=2),
-                yaxis=dict(zeroline=False, gridcolor='white'),
+                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
+                yaxis=dict(zeroline=False, gridcolor='white', range=[0., 1.]),
                 paper_bgcolor='rgb(233,233,233)',
                 plot_bgcolor='rgb(233,233,233)',
                 showlegend=False
@@ -333,7 +323,7 @@ if __name__ == '__main__':
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-vTEST12'
+    ])) + '-v7.0'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
