@@ -16,7 +16,7 @@ class Flatten(nn.Module):
 
 def get_model(conditional=False, **resnet_kwargs):
     if conditional:
-        ConditionalImitation(**resnet_kwargs)
+        return ConditionalImitation(**resnet_kwargs)
     
     return DirectImitation(**resnet_kwargs)
 

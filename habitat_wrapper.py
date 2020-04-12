@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -47,7 +47,7 @@ CONFIGS = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode, student=None, split='train'):
+    def __init__(self, task, proxy, mode='teacher', student=None, split='train', **kwargs):
         assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
@@ -82,22 +82,6 @@ class Rollout:
         env_config = get_config(CONFIGS[c.INPUT_TYPE][split])
         self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
-
-    def act_student(self):
-        rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
-        rgb = rgb.to(self.device)
-
-        if self.task == 'dontcrash':
-            out = self.student((rgb,))
-        elif self.task == 'pointgoal':
-            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
-            rot = torch.Tensor(self.state.roation.components[[0,2]])
-            meta = torch.cat([xy, rot]).unsqueeze(dim=0)
-            meta = meta.to(self.device)
-
-            out = self.student((rgb, meta))
-
-        return {'action': out[0].argmax().item()}, out # action, logits
 
     def clean(self):
         self.agent.reset()
@@ -139,6 +123,22 @@ class Rollout:
         self.prev_d_rot = np.mean(self.d_rot)
 
         return self.i > 10 and ((np.max(self.d_pos) == 0 and np.max(self.d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.proxy])
+
+    def act_student(self):
+        rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
+        rgb = rgb.to(self.device)
+
+        if self.task == 'dontcrash':
+            out = self.student((rgb,))
+        elif self.task == 'pointgoal':
+            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
+            rot = torch.Tensor(self.state.rotation.components[[0,2]])
+            meta = torch.cat([xy, rot]).unsqueeze(dim=0)
+            meta = meta.to(self.device)
+
+            out = self.student((rgb, meta))
+
+        return {'action': out[0].argmax().item()}, out # action, logits
 
     def get_action(self):
         if self.mode == 'student':
