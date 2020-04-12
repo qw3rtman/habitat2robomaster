@@ -4,7 +4,7 @@ from pathlib import Path
 jobs = list()
 
 for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
-    for dataset_size in [1.0]: # 0.1, 0.5
+    for dataset_size, interpolate_flag, interpolate_name in [(1.0, '', 'original'), (0.3, '--interpolate', 'interpolate')]:
         for batch_size in [64, 128]: # 32
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [5e-5]: # 5e-4
@@ -19,12 +19,12 @@ for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
     --dataset_size {dataset_size} \\
     --teacher_task dontcrash \\
     --teacher_proxy depth \\
-    --dagger_dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth-dagger/{resnet_model}-{conditional_name}-dagger-{episodes_per_epoch}-{capacity}-{dataset_size}-{batch_size}-{lr}-{weight_decay} \\
+    --dagger_dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth-dagger/{resnet_model}-{conditional_name}-dagger-{interpolate_name}-{episodes_per_epoch}-{capacity}-{dataset_size}-{batch_size}-{lr}-{weight_decay} \\
     --lr {lr} \\
     --batch_size {batch_size} \\
     --weight_decay {weight_decay} \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
-    {dagger} {conditional_flag}
+    {dagger} {interpolate_flag} {conditional_flag}
 """
 
                                     jobs.append(job)
