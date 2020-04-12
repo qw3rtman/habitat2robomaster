@@ -16,7 +16,7 @@ class Flatten(nn.Module):
 
 def get_model(conditional=False, **resnet_kwargs):
     if conditional:
-        pass
+        ConditionalImitation(**resnet_kwargs)
     
     return DirectImitation(**resnet_kwargs)
 
@@ -49,3 +49,15 @@ class DirectImitation(nn.Module):
         rgb_vec = self.visual_encoder({'rgb': rgb})
 
         return self.action_fc(self.visual_fc(rgb_vec))
+
+class ConditionalImitation(DirectImitation):
+    def __init__(self, resnet_model='resnet18', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=4):
+        super().__init__(resnet_model, baseplanes, ngroups, hidden_size, dim_actions)
+
+        self.action_fc = nn.Linear(hidden_size + meta_size, dim_actions)
+
+    def forward(self, x):
+        rgb, meta = x
+        rgb_vec = self.visual_encoder({'rgb': rgb})
+
+        return self.action_fc(torch.cat([self.visual_fc(rgb_vec), meta], dim=1))

@@ -65,8 +65,8 @@ class HabitatDataset(torch.utils.data.Dataset):
             self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
             self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
 
-        self.positions = np.stack(itemgetter('x','y','y')(self.measurements), -1)[_indices]
-        self.rotations = np.stack(itemgetter('i','j','k','l')(self.measurements), -1)[_indices]
+        self.positions = torch.Tensor(np.stack(itemgetter('x','y','y')(self.measurements), -1)[_indices])
+        self.rotations = torch.Tensor(np.stack(itemgetter('i','j','k','l')(self.measurements), -1)[_indices])
 
         if interpolate:
             _action_indices = []
@@ -100,7 +100,9 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = self.actions[idx]
-        meta   = torch.cat([self.start_position, self.start_rotation, self.end_position], dim=-1)
+
+        # curr rot, end pos - curr pos
+        meta = torch.cat([self.rotations[idx,[0,2]], self.end_position[:2] - self.positions[idx,:2]], dim=-1)
 
         # rgb, mapview, segmentation, action, meta, episode
         return rgb, 0, 0, action, meta, self.episode_idx
