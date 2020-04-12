@@ -37,12 +37,17 @@ MODELS = {
 }
 
 CONFIGS = {
-    'rgb':   'rgb_test.yaml',
-    'depth': 'depth_test.yaml'
+    'depth': {
+        'train': 'configs/pointgoal-depth-train.yaml',
+        'val': 'configs/pointgoal-depth-val.yaml'
+    },
+    'rgb': {
+        'train': 'configs/pointgoal-depth-train.yaml'
+    }
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode, student=None):
+    def __init__(self, task, proxy, mode, student=None, split='train'):
         assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
@@ -74,7 +79,7 @@ class Rollout:
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        env_config = get_config(CONFIGS[c.INPUT_TYPE])
+        env_config = get_config(CONFIGS[c.INPUT_TYPE][split])
         self.env = Env(config=env_config)
         self.agent = PPOAgent(c)
 
