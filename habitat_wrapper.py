@@ -84,11 +84,19 @@ class Rollout:
         self.agent = PPOAgent(c)
 
     def act_student(self):
-        # NOTE: get CONDITIONAL from 11682f9
         rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
 
-        out = self.student((rgb,))
+        if self.task == 'dontcrash':
+            out = self.student((rgb,))
+        elif self.task == 'pointgoal':
+            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
+            rot = torch.Tensor(self.state.roation.components[[0,2]])
+            meta = torch.cat([xy, rot]).unsqueeze(dim=0)
+            meta = meta.to(self.device)
+
+            out = self.student((rgb, meta))
+
         return {'action': out[0].argmax().item()}, out # action, logits
 
     def clean(self):
@@ -152,6 +160,7 @@ class Rollout:
 
     def rollout(self):
         self.clean()
+        self.state = self.env.sim.get_agent_state()
 
         while not self.env.episode_over:
             action = self.get_action()
