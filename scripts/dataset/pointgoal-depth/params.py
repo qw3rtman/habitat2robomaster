@@ -4,9 +4,10 @@ from pathlib import Path
 jobs = list()
 
 job = f"""python habitat_wrapper.py \\
-    --mode teacher \\
+    --task pointgoal \\
     --proxy depth \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/dontcrash-depth-nostop \\
+    --mode teacher \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/pointgoal-depth \\
     --num_episodes 1200
 """
 

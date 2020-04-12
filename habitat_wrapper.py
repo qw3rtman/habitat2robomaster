@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -47,7 +47,7 @@ CONFIGS = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, split='train', **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, split='train', gpu_id=0, **kwargs):
         assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
@@ -66,8 +66,8 @@ class Rollout:
         c.RANDOM_SEED      = 7
 
         c.PTH_GPU_ID       = 0
-        c.SIMULATOR_GPU_ID = 0
-        c.TORCH_GPU_ID     = 0
+        c.SIMULATOR_GPU_ID = gpu_id
+        c.TORCH_GPU_ID     = gpu_id
         c.NUM_PROCESSES    = 4
 
         c.INPUT_TYPE       = proxy

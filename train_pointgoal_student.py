@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import TASKS, MODELS, get_episode, save_episode
+from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
 all_success = []
 all_spl = []
@@ -40,6 +40,8 @@ def validate(net, env, data, config):
     for i, (rgb, _, _, action, meta, _) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = torch.LongTensor(action).to(config['device'])
+        meta = meta.to(config['device'])
+
         _action = net((rgb, meta))
 
         loss = criterion(_action, action)
@@ -73,7 +75,7 @@ def validate(net, env, data, config):
 
             metrics = {}
             if ep == NUM_EPISODES - 1:
-                success.append(success)
+                all_success.append(success)
                 metrics['success_mean'] = np.mean(success)
                 metrics['success_std'] = np.std(success)
                 metrics['success_median'] = np.median(success)
@@ -175,6 +177,8 @@ def train(net, env, data, optim, config):
     for i, (rgb, _, _, action, meta, episode_idx) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = torch.LongTensor(action).to(config['device'])
+        meta = meta.to(config['device'])
+
         _action = net((rgb, meta))
 
         loss = criterion(_action, action)
@@ -235,7 +239,7 @@ def main(config):
     if config['dagger']:
         (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
 
-    env_train = Rollout(**config['teacher_args'], student=net, split='train')
+    #env_train = Rollout(**config['teacher_args'], student=net, split='train')
     env_val = Rollout(**config['teacher_args'], student=net, split='val')
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
@@ -260,7 +264,8 @@ def main(config):
 
         checkpoint_project(net, optim, scheduler, config)
 
-        loss_train = train(net, env_train, data_train, optim, config)
+        # NOTE: don't do dagger for now
+        loss_train = train(net, env_val, data_train, optim, config)
         with torch.no_grad():
             loss_val = validate(net, env_val, data_val, config)
 
@@ -314,7 +319,7 @@ if __name__ == '__main__':
         'interpolate' if parsed.interpolate else 'original',                                    # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-v8.1'
+    ])) + '-v9.2'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
