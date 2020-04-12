@@ -1,4 +1,4 @@
-from habitat_wrapper import get_rollout, METRICS
+from habitat_wrapper import  METRICS
 from model import get_model
 
 import argparse
@@ -22,7 +22,7 @@ def get_env(model):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    env = get_rollout(**teacher_args, student=net)
+    env = Rollout(**teacher_args, student=net)
     env.mode = 'student'
 
     return env

@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import TASKS, MODELS, get_rollout, get_episode, save_episode
+from habitat_wrapper import TASKS, MODELS, get_episode, save_episode
 
 all_lwns = []
 all_lwns_norm = []
@@ -249,7 +249,7 @@ def main(config):
     if config['dagger']:
         (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
 
-    env = get_rollout(**config['teacher_args'], student=net)
+    env = Rollout(**config['teacher_args'], student=net)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
