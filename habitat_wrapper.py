@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -154,6 +154,7 @@ class Rollout:
 
         while not self.env.episode_over:
             action = self.get_action()
+            #print(action)
             self.state = self.env.sim.get_agent_state()
 
             is_stuck = self.is_stuck()
@@ -171,12 +172,10 @@ class Rollout:
                 'is_slide': is_slide
             }
 
-            # ending early
-            """
+            # ending early (before we stop)
             if self.mode == 'teacher':
-                if action[self.mode]['action'] == 0 or is_stuck or is_slide:
+                if action[self.mode]['action'] == 0:
                     break
-            """
 
             yield sample
             self.i += 1

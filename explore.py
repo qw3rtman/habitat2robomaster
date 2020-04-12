@@ -17,16 +17,24 @@ for d in parsed.dataset_dir.glob('00*'):
         lwns_norm.append(x['lwns_norm'])
         imgs.append(len(list(d.iterdir())) - 2)
 
-print(len(lwns))
+print(f'Length: {len(lwns)}')
 print()
 
-plt.hist(lwns); print(np.mean(lwns)), print(np.median(lwns))
+try:
+    plt.hist(lwns)
+except:
+    pass
+print(f'LWNS mean: {np.mean(lwns)}, median: {np.median(lwns)}')
 print()
 
-plt.hist(lwns_norm); print(np.mean(lwns_norm)), print(np.median(lwns_norm))
+try:
+    plt.hist(lwns_norm)
+except:
+    pass
+print(f'LWNS_norm mean: {np.mean(lwns_norm)}, median: {np.median(lwns_norm)}')
 print()
 
-print(np.sum(imgs), np.mean(imgs))
+print(f'# Images total: {np.sum(imgs)}, mean: {np.mean(imgs)}')
 
 """
 import plotly.graph_objects as go

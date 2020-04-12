@@ -22,5 +22,4 @@ for i, run in enumerate(runs):
         continue
     if models[-1].name.split('.')[0] not in [str(model.stem) for model in root.glob('model_*.t7')]:
         models[-1].download(root=root)
-
-    print(f'[{i+1}/{len(runs)}] Downloaded {root}')
+        print(f'[{i+1}/{len(runs)}] Downloaded {models[-1]} in {root}')

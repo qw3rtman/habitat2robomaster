@@ -34,6 +34,8 @@ if __name__ == '__main__':
     parser.add_argument('--model', '-m', type=str, required=True)
     parser.add_argument('--epoch', '-e', type=int)
     parser.add_argument('--auto', '-a', action='store_true')
+    parser.add_argument('--human', '-hr', action='store_true')
+    parser.add_argument('--display', '-d', action='store_true')
     parsed = parser.parse_args()
 
     model_path = parsed.models_root / parsed.model
@@ -59,10 +61,14 @@ if __name__ == '__main__':
             longest += 1
             length += 1
 
-            cv2.imshow('rgb', step['rgb'])
-            cv2.waitKey(10 if parsed.auto else 0)
+            if parsed.display:
+                cv2.imshow('rgb', step['rgb'])
+                cv2.waitKey(10 if parsed.auto else 0)
 
-        print(f'[!] Finish Episode {ep:06}, LWNS: {lwns}, LWNS_norm: {lwns/length}\n')
+        if parsed.human:
+            print(f'[!] Finish Episode {ep:06}, Length: {length}, LWNS: {lwns}, LWNS_norm: {lwns/length}\n')
+        else:
+            print(f'{lwns},{lwns/length}')
         """
         print(env.env.get_metrics()['collisions'])
         for m, v in env.env.get_metrics().items():
