@@ -307,6 +307,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--interpolate', action='store_true')
     parser.add_argument('--dagger', action='store_true')
     parser.add_argument('--capacity', type=int, default=1000)         # if DAgger
     parser.add_argument('--episodes_per_epoch', type=int, default=50) # if DAgger
@@ -321,7 +322,8 @@ if __name__ == '__main__':
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
         'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc', # run-specific, high-level
-        *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger specific
+        'interpolate' if parsed.interpolate else 'original',                                    # dataset
+        *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
     ])) + '-v8.0'
 
@@ -350,6 +352,8 @@ if __name__ == '__main__':
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
+
+                'interpolate': parsed.interpolate,
 
                 'dagger': parsed.dagger,
                 'capacity': parsed.capacity,

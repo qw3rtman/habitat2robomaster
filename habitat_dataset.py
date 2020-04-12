@@ -26,7 +26,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, bat
         num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episodes)))
 
         for episode_dir in episodes[:num_episodes]:
-            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate))
+            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True))
 
         print('%s: %d' % (train_or_val, len(data)))
 
