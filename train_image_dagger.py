@@ -27,6 +27,7 @@ c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 def validate(net, env, data, config):
     NUM_EPISODES = 100
     VIDEO_FREQ   = 20
+    EPOCH_FREQ   = 5
 
     net.eval()
     env.mode = 'student'
@@ -62,71 +63,72 @@ def validate(net, env, data, config):
                 step=wandb.run.summary['step'])
 
     # rollout
-    lwns      = np.zeros(NUM_EPISODES)
-    lwns_norm = np.zeros(NUM_EPISODES)
-    for ep in range(NUM_EPISODES):
-        images = []
-        longest, length = 0, 0
-        for step in get_episode(env):
-            lwns[ep] = max(lwns[ep], longest)
-            if step['is_stuck']:
-                longest = 0
-            longest += 1
-            length += 1
+    if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
+        lwns      = np.zeros(NUM_EPISODES)
+        lwns_norm = np.zeros(NUM_EPISODES)
+        for ep in range(NUM_EPISODES):
+            images = []
+            longest, length = 0, 0
+            for step in get_episode(env):
+                lwns[ep] = max(lwns[ep], longest)
+                if step['is_stuck']:
+                    longest = 0
+                longest += 1
+                length += 1
 
-            if ep % VIDEO_FREQ == 0:
-                images.append(np.transpose(step['rgb'], (2, 0, 1)))
+                if ep % VIDEO_FREQ == 0:
+                    images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
-        lwns_norm[ep] = lwns[ep] / length
+            lwns_norm[ep] = lwns[ep] / length
 
-        metrics = {}
-        if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
-            all_lwns.append(lwns)
-            metrics['lwns_mean'] = np.mean(lwns)
-            metrics['lwns_std'] = np.std(lwns)
-            metrics['lwns_median'] = np.median(lwns)
-            metrics['lwns'] = wandb.Histogram(lwns)
-            fig = go.Figure(data=[go.Box(y=data,
-                boxpoints='all',
-                boxmean=True,
-                jitter=0.1,
-                pointpos=-1.6,
-                name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
-                marker_color=c[i]
-            ) for i, data in enumerate(all_lwns[-20:])])
-            fig.update_layout(
-                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
-                yaxis=dict(zeroline=False, gridcolor='white'),
-                paper_bgcolor='rgb(233,233,233)',
-                plot_bgcolor='rgb(233,233,233)',
-                showlegend=False
-            )
-            metrics['lwns_box'] = fig
+            metrics = {}
+            if ep == NUM_EPISODES - 1 and config['teacher_args']['task'] == 'dontcrash':
+                all_lwns.append(lwns)
+                metrics['lwns_mean'] = np.mean(lwns)
+                metrics['lwns_std'] = np.std(lwns)
+                metrics['lwns_median'] = np.median(lwns)
+                metrics['lwns'] = wandb.Histogram(lwns)
+                fig = go.Figure(data=[go.Box(y=data,
+                    boxpoints='all',
+                    boxmean=True,
+                    jitter=0.1,
+                    pointpos=-1.6,
+                    name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
+                    marker_color=c[i]
+                ) for i, data in enumerate(all_lwns[-20:])])
+                fig.update_layout(
+                    xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
+                    yaxis=dict(zeroline=False, gridcolor='white'),
+                    paper_bgcolor='rgb(233,233,233)',
+                    plot_bgcolor='rgb(233,233,233)',
+                    showlegend=False
+                )
+                metrics['lwns_box'] = fig
 
-            all_lwns_norm.append(lwns_norm)
-            metrics['lwns_norm_mean'] = np.mean(lwns_norm)
-            metrics['lwns_norm_std'] = np.std(lwns_norm)
-            metrics['lwns_norm_median'] = np.median(lwns_norm)
-            metrics['lwns_norm'] = wandb.Histogram(lwns_norm)
-            fig = go.Figure(data=[go.Box(y=data,
-                boxpoints='all',
-                boxmean=True,
-                jitter=0.1,
-                pointpos=-1.6,
-                name=f"{max(wandb.run.summary['epoch']-20, 0)+i+1}",
-                marker_color=c[i]
-            ) for i, data in enumerate(all_lwns_norm[-20:])])
-            fig.update_layout(
-                xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
-                yaxis=dict(zeroline=False, gridcolor='white', range=[0., 1.]),
-                paper_bgcolor='rgb(233,233,233)',
-                plot_bgcolor='rgb(233,233,233)',
-                showlegend=False
-            )
-            metrics['lwns_norm_box'] = fig
+                all_lwns_norm.append(lwns_norm)
+                metrics['lwns_norm_mean'] = np.mean(lwns_norm)
+                metrics['lwns_norm_std'] = np.std(lwns_norm)
+                metrics['lwns_norm_median'] = np.median(lwns_norm)
+                metrics['lwns_norm'] = wandb.Histogram(lwns_norm)
+                fig = go.Figure(data=[go.Box(y=data,
+                    boxpoints='all',
+                    boxmean=True,
+                    jitter=0.1,
+                    pointpos=-1.6,
+                    name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
+                    marker_color=c[i]
+                ) for i, data in enumerate(all_lwns_norm[-20:])])
+                fig.update_layout(
+                    xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
+                    yaxis=dict(zeroline=False, gridcolor='white', range=[0., 1.]),
+                    paper_bgcolor='rgb(233,233,233)',
+                    plot_bgcolor='rgb(233,233,233)',
+                    showlegend=False
+                )
+                metrics['lwns_norm_box'] = fig
 
-        if ep % VIDEO_FREQ == 0 and len(images) > 0:
-            metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
+            if ep % VIDEO_FREQ == 0 and len(images) > 0:
+                metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
@@ -325,7 +327,7 @@ if __name__ == '__main__':
         'interpolate' if parsed.interpolate else 'original',                                    # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),               # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                  # boring stuff
-    ])) + '-v8.0'
+    ])) + '-v8.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
