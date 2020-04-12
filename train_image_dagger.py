@@ -130,9 +130,9 @@ def validate(net, env, data, config):
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
                 metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
 
-        wandb.log(
-                {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
-                step=wandb.run.summary['step'])
+            wandb.log(
+                    {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
+                    step=wandb.run.summary['step'])
 
     return np.mean(losses)
 
