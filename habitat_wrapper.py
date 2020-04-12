@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -41,7 +41,7 @@ CONFIGS = {
     'depth': 'depth_test.yaml'
 }
 
-def get_rollout(task, proxy, student=None):
+def get_rollout(task, proxy, student=None, **kwargs):
     assert task in TASKS
 
     if task == 'dontcrash':

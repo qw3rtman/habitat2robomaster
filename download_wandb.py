@@ -17,8 +17,10 @@ for i, run in enumerate(runs):
     if not (root / 'config.yaml').exists():
         run.file('config.yaml').download(root=root)
 
-    model = [f for f in run.files() if 'model_' in f.name][-1]
-    if model.name.split('.')[0] not in [str(model.stem) for model in root.glob('model_*.t7')]:
-        model.download(root=root)
+    models = [f for f in run.files() if 'model_' in f.name]
+    if len(models) == 0:
+        continue
+    if models[-1].name.split('.')[0] not in [str(model.stem) for model in root.glob('model_*.t7')]:
+        models[-1].download(root=root)
 
     print(f'[{i+1}/{len(runs)}] Downloaded {root}')
