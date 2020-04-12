@@ -41,19 +41,15 @@ CONFIGS = {
     'depth': 'depth_test.yaml'
 }
 
-def get_rollout(task, proxy, student=None, **kwargs):
-    assert task in TASKS
-
-    if task == 'dontcrash':
-        return Rollout(proxy, 'teacher', student=student)
-
 class Rollout:
-    def __init__(self, proxy, mode, student=None):
+    def __init__(self, task, proxy, mode, student=None):
+        assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
         if mode in ['student', 'both']:
             assert student is not None
 
+        self.task = task
         self.proxy = proxy
         self.mode = mode
         self.student = student
@@ -172,9 +168,9 @@ class Rollout:
                 'is_slide': is_slide
             }
 
-            # ending early (before we stop)
+            # pruning rules
             if self.mode == 'teacher':
-                if action[self.mode]['action'] == 0:
+                if self.task == 'dontcrash' and action[self.mode]['action'] == 0:
                     break
 
             yield sample
@@ -261,19 +257,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--num_episodes', type=int, required=True)
-    #parser.add_argument('--task', choices=TASKS, required=True)
+    parser.add_argument('--task', choices=TASKS, required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--mode', choices=MODES, required=True)
-    args = parser.parse_args()
+    parsed = parser.parse_args()
 
     summary = defaultdict(float)
     summary['ep'] = 1
-    if (args.dataset_dir / 'summary.csv').exists():
-        summary = pd.read_csv(args.dataset_dir / 'summary.csv').iloc[0]
+    if (parsed.dataset_dir / 'summary.csv').exists():
+        summary = pd.read_csv(parsed.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(args.proxy, args.mode)
-    for ep in range(int(summary['ep']), int(summary['ep'])+args.num_episodes):
-        episode_dir = args.dataset_dir / f'{ep:06}'
+    env = Rollout(parsed.task, parsed.proxy, parsed.mode)
+    for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
+        episode_dir = parsed.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
@@ -288,4 +284,4 @@ if __name__ == '__main__':
         print({k: v / ep for k, v in summary.items() if k in METRICS})
         print()
 
-        pd.DataFrame([summary]).to_csv(args.dataset_dir / 'summary.csv', index=False)
+        pd.DataFrame([summary]).to_csv(parsed.dataset_dir / 'summary.csv', index=False)
