@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import pandas as pd
 from torchvision import transforms
+from pyquaternion import Quaternion
 
 from pathlib import Path
 import argparse
@@ -137,7 +138,7 @@ class Rollout:
             rot = self.state.rotation.components
             source_rotation = Quaternion(*rot[1:4], rot[0])
             goal_position = self.env.current_episode.goals[0].position
-            meta = HabitatDataset.get_direction(source_position, source_rotation, goal_position)
+            meta = HabitatDataset.get_direction(source_position, source_rotation, goal_position).unsqueeze(dim=0)
             meta = meta.to(self.device)
 
             out = self.student((rgb, meta))
@@ -171,7 +172,6 @@ class Rollout:
             #print(action)
             self.state = self.env.sim.get_agent_state()
 
-            print(self.state.position)
             is_stuck = self.is_stuck()
             is_slide = self.is_slide()
             sample = {

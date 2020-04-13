@@ -51,7 +51,7 @@ class DirectImitation(nn.Module):
         return self.action_fc(self.visual_fc(rgb_vec))
 
 class ConditionalImitation(DirectImitation):
-    def __init__(self, resnet_model='resnet18', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=4):
+    def __init__(self, resnet_model='resnet18', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=2):
         super().__init__(resnet_model, baseplanes, ngroups, hidden_size, dim_actions)
 
         self.action_fc = nn.Linear(hidden_size + meta_size, dim_actions)
