@@ -4,19 +4,19 @@ import cv2
 import pandas as pd
 from torchvision import transforms
 from PIL import Image
+from pyquaternion import Quaternion
 
 from pathlib import Path
 import argparse
 from operator import itemgetter
 from itertools import repeat
-import quaternion
 
 from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, batch_size=128, num_workers=4, **kwargs):
+def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, **kwargs):
 
     def make_dataset(is_train):
         data = list()
@@ -26,7 +26,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, bat
         num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episodes)))
 
         for episode_dir in episodes[:num_episodes]:
-            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True))
+            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True, augmentation=augmentation))
 
         print('%s: %d' % (train_or_val, len(data)))
 
@@ -39,13 +39,14 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, bat
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, is_seed=False, interpolate=False):
+    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
         self.episode_idx = 0
         self.loss = 0.0 # kick out these seeded ones first
         self.is_seed = is_seed
+        self.augmentation = augmentation
 
         self.episode_dir = episode_dir
 
@@ -65,7 +66,8 @@ class HabitatDataset(torch.utils.data.Dataset):
             self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
             self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
 
-        self.positions = torch.Tensor(np.stack(itemgetter('x','y','y')(self.measurements), -1)[_indices])
+        self.compass = torch.Tensor(np.stack(itemgetter('compass_r','compass_t')(self.measurements), -1)[_indices])
+        self.positions = torch.Tensor(np.stack(itemgetter('x','y','z')(self.measurements), -1)[_indices])
         self.rotations = torch.Tensor(np.stack(itemgetter('i','j','k','l')(self.measurements), -1)[_indices])
 
         if interpolate:
@@ -94,22 +96,50 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.imgs)
 
-    def _get_meta(self):
-        np.random.random()
+    def _get_direction(self, start, end=None):
+        source_position = self.positions[start]
+        source_rotation = Quaternion(*self.rotations[start,1:4], self.rotations[start,0])
+        goal_position = self.end_position
+        if end is not None:
+            goal_position = self.positions[end]
 
-    def __getitem__(self, idx):
-        rgb    = Image.open(self.imgs[idx])
-        rgb    = torch.Tensor(np.uint8(rgb))
+        return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
 
-        #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
-        action = self.actions[idx]
+    @staticmethod
+    def get_direction(source_position, source_rotation, goal_position):
+        direction_vector = goal_position - source_position
+        direction_vector_agent = source_rotation.inverse.rotate(direction_vector)
+
+        return torch.Tensor([-direction_vector_agent[2], -direction_vector_agent[0]])
+
+    def _get_meta(self, start):
+        if not self.augmentation:
+            return self._get_direction(start)
+
+        # augmentation...
+
+
+    def _flip_action(self, action):
         # 0: stop
         # 1: forward
         # 2: left 10º
         # 3: right 10º
+        if action == 2:
+            return 3
+        if action == 3:
+            return 2
 
-        # curr rot, end pos - curr pos
-        meta = torch.cat([self.rotations[idx,[0,2]], self.end_position[:2] - self.positions[idx,:2]], dim=-1)
+        return action
+
+    def __getitem__(self, idx):
+        rgb    = Image.open(self.imgs[idx])
+        action = self.actions[idx]
+        if self.augmentation and np.random.random() < 0.10:
+            rgb = rgb.transpose(Image.FLIP_LEFT_RIGHT)
+            action = self._flip_action(action)
+
+        rgb  = torch.Tensor(np.uint8(rgb))
+        meta = self._get_meta(idx)
 
         # rgb, mapview, segmentation, action, meta, episode
         return rgb, 0, 0, action, meta, self.episode_idx

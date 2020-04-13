@@ -12,6 +12,8 @@ import shutil
 from collections import deque, defaultdict
 import quaternion
 
+from habitat_dataset import HabitatDataset
+
 import habitat
 from habitat.config import Config
 from habitat.config.default import get_config
@@ -131,10 +133,11 @@ class Rollout:
         if self.task == 'dontcrash':
             out = self.student((rgb,))
         elif self.task == 'pointgoal':
-            rot = torch.Tensor(self.state.rotation.components[[0,2]])
-            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
-            meta = torch.cat([rot, xy], dim=-1).unsqueeze(dim=0)
-            #print(meta)
+            source_position = self.state.position
+            rot = self.state.rotation.components
+            source_rotation = Quaternion(*rot[1:4], rot[0])
+            goal_position = self.env.current_episode.goals[0].position
+            meta = HabitatDataset.get_direction(source_position, source_rotation, goal_position)
             meta = meta.to(self.device)
 
             out = self.student((rgb, meta))
@@ -168,6 +171,7 @@ class Rollout:
             #print(action)
             self.state = self.env.sim.get_agent_state()
 
+            print(self.state.position)
             is_stuck = self.is_stuck()
             is_slide = self.is_slide()
             sample = {
