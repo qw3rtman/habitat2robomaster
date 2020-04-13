@@ -139,10 +139,16 @@ class HabitatDataset(torch.utils.data.Dataset):
 
             return rgb, action, direction
 
-        if p < 0.50: # goal is k steps ahead, instead of end_position
+        if p < 0.45: # goal is k steps ahead, instead of end_position
             #print('truncate')
             k = np.random.randint(5, 30)
             return rgb, action, self._get_direction(start, start+k)
+        
+        if p < 0.50: # stop if within 0.20
+            x = np.random.random() * 0.20
+            y = np.random.random() * np.sqrt(0.20**2 - x**2)
+
+            return rgb, torch.LongTensor([0])[0], torch.Tensor([x, y])
 
         return rgb, action, self._get_direction(start)
 
