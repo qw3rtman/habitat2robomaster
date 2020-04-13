@@ -14,6 +14,7 @@ for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
                             for episodes_per_epoch in [100]:
                                 for capacity in [1000]:
                                     job = f"""python train_pointgoal_student.py \\
+    --max_epoch 150 \\
     --resnet_model {resnet_model} \\
     --dataset_dir /scratch/cluster/nimit/data/habitat/pointgoal-depth \\
     --dataset_size {dataset_size} \\

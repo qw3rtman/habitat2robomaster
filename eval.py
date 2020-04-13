@@ -6,6 +6,7 @@ from collections import defaultdict
 import time
 
 import torch
+import numpy as np
 import cv2
 import pandas as pd
 from pathlib import Path
@@ -61,6 +62,8 @@ if __name__ == '__main__':
             lwns = max(lwns, longest)
             if step['is_stuck']:
                 longest = 0
+                print('stuck?')
+                break
             longest += 1
             length += 1
 
@@ -74,11 +77,13 @@ if __name__ == '__main__':
             else:
                 print(f'{lwns},{lwns/length}')
         elif task == 'pointgoal':
+            print(env.env.get_metrics())
             for m, v in env.env.get_metrics().items():
                 if m in METRICS:
                     summary[m] += v
+            print(np.linalg.norm(env.env.current_episode.goals[0].position[:2] - env.state.position[:2]))
 
-            print({k: v / ep for k, v in summary.items() if k in METRICS})
+            print('Aggregate: {}'.format({k: v / ep for k, v in summary.items() if k in METRICS}))
             print()
 
         summary['ep'] = ep+1

@@ -131,9 +131,10 @@ class Rollout:
         if self.task == 'dontcrash':
             out = self.student((rgb,))
         elif self.task == 'pointgoal':
-            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
             rot = torch.Tensor(self.state.rotation.components[[0,2]])
-            meta = torch.cat([xy, rot]).unsqueeze(dim=0)
+            xy  = torch.Tensor(self.env.current_episode.goals[0].position[:2] - self.state.position[:2])
+            meta = torch.cat([rot, xy], dim=-1).unsqueeze(dim=0)
+            #print(meta)
             meta = meta.to(self.device)
 
             out = self.student((rgb, meta))

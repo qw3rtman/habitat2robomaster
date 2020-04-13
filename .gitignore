@@ -5,6 +5,8 @@
 __pycache__/
 .ipynb_checkpoints
 
+wandb/
+checkpoints/
 models/
 *.t7
 
