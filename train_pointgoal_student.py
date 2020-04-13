@@ -24,11 +24,67 @@ all_success = []
 all_spl = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-def validate(net, env, data, config):
-    NUM_EPISODES = 100
-    VIDEO_FREQ   = 20
-    EPOCH_FREQ   = 5
+NUM_EPISODES = 100
+VIDEO_FREQ   = 20
+EPOCH_FREQ   = 5
 
+def _get_box(all_x):
+    fig = go.Figure(data=[go.Box(y=data,
+        boxpoints='all',
+        boxmean=True,
+        jitter=0.1,
+        pointpos=-1.6,
+        name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
+        marker_color=c[i]
+    ) for i, data in enumerate(all_x[-20:])])
+    fig.update_layout(
+        xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
+        yaxis=dict(zeroline=False, gridcolor='white'),
+        paper_bgcolor='rgb(233,233,233)',
+        plot_bgcolor='rgb(233,233,233)',
+        showlegend=False
+    )
+
+    return fig
+
+def _get_hist2d(x, y):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x,
+        y=y,
+        mode='markers',
+        showlegend=False,
+        marker=dict(
+            symbol='x',
+            opacity=0.7,
+            color='white',
+            size=8,
+            line=dict(width=1),
+        )
+    ))
+
+    fig.add_trace(go.Histogram2d(
+        x=x,
+        y=y,
+        nbinsx=10,
+        nbinsy=50,
+        histnorm='probability density',
+        colorscale=["#cc0000", "#4e9a06", "#73d216", "#8ae234"]
+    ))
+
+    fig.update_layout(
+        xaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20 ),
+        yaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20 ),
+        autosize=False,
+        height=550,
+        width=550,
+        hovermode='closest',
+    )
+
+    return fig
+
+
+def validate(net, env, data, config):
     net.eval()
     env.mode = 'student'
 
@@ -62,16 +118,22 @@ def validate(net, env, data, config):
 
     # rollout
     if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
+        distance_to_goal = np.zeros(NUM_EPISODES)
         success = np.zeros(NUM_EPISODES)
         spl = np.zeros(NUM_EPISODES)
+        distance_from_goal = np.zeros(NUM_EPISODES)
+
         for ep in range(NUM_EPISODES):
             images = []
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
                     images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
-            success[ep] = env.env.get_metrics()['success']
-            spl[ep] = env.env.get_metrics()['spl']
+            env_metrics = env.env.get_metrics()
+            distance_to_goal[ep] = env_metrics['distance_to_goal']
+            success[ep] = env_metrics['success']
+            spl[ep] = env_metrics['spl']
+            distance_from_goal[ep] = np.linalg.norm(env.env.current_episode.goals[0].position[:2] - env.state.position[:2])
 
             metrics = {}
             if ep == NUM_EPISODES - 1:
@@ -80,44 +142,18 @@ def validate(net, env, data, config):
                 metrics['success_std'] = np.std(success)
                 metrics['success_median'] = np.median(success)
                 metrics['success'] = wandb.Histogram(success)
-                fig = go.Figure(data=[go.Box(y=data,
-                    boxpoints='all',
-                    boxmean=True,
-                    jitter=0.1,
-                    pointpos=-1.6,
-                    name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
-                    marker_color=c[i]
-                ) for i, data in enumerate(all_success[-20:])])
-                fig.update_layout(
-                    xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
-                    yaxis=dict(zeroline=False, gridcolor='white'),
-                    paper_bgcolor='rgb(233,233,233)',
-                    plot_bgcolor='rgb(233,233,233)',
-                    showlegend=False
-                )
-                metrics['success_box'] = fig
+                metrics['success_box'] = _get_box(all_success)
 
                 all_spl.append(spl)
                 metrics['spl_mean'] = np.mean(spl)
                 metrics['spl_std'] = np.std(spl)
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
-                fig = go.Figure(data=[go.Box(y=data,
-                    boxpoints='all',
-                    boxmean=True,
-                    jitter=0.1,
-                    pointpos=-1.6,
-                    name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
-                    marker_color=c[i]
-                ) for i, data in enumerate(all_spl[-20:])])
-                fig.update_layout(
-                    xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
-                    yaxis=dict(zeroline=False, gridcolor='white', range=[0., 1.]),
-                    paper_bgcolor='rgb(233,233,233)',
-                    plot_bgcolor='rgb(233,233,233)',
-                    showlegend=False
-                )
-                metrics['spl_box'] = fig
+                metrics['spl_box'] = _get_box(all_spl)
+
+                metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
+                metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
+                metrics['distance_from_goal_vs_success'] = _get_hist2d(distance_from_goal, success)
 
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
                 metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')

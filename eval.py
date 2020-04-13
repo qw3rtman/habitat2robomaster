@@ -54,6 +54,10 @@ if __name__ == '__main__':
     if (model_path.parent / 'summary.csv').exists():
         summary = pd.read_csv(model_path.parent / 'summary.csv').iloc[0]
 
+    x  = []
+    y1 = []
+    y2 = []
+
     env = get_env(model_path)
     for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
         lwns, longest, length = 0, 0, 0
@@ -83,7 +87,17 @@ if __name__ == '__main__':
                     summary[m] += v
             print(np.linalg.norm(env.env.current_episode.goals[0].position[:2] - env.state.position[:2]))
 
+            x.append(env.env.get_metrics()['distance_to_goal'])
+            y1.append(env.env.get_metrics()['spl'])
+            y2.append(env.env.get_metrics()['success'])
+
             print('Aggregate: {}'.format({k: v / ep for k, v in summary.items() if k in METRICS}))
+            print()
+
+            print(x)
+            print(y1)
+            print(y2)
+            print()
             print()
 
         summary['ep'] = ep+1
