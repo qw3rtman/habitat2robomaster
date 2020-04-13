@@ -165,7 +165,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         if self.augmentation:
             rgb, action, meta = self.aug(idx, rgb, action)
         else:
-            meta = self._get_direction(start)
+            meta = self._get_direction(idx)
 
         rgb  = torch.Tensor(np.uint8(rgb))
 

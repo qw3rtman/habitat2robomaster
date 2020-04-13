@@ -342,9 +342,9 @@ if __name__ == '__main__':
     parser.add_argument('--interpolate', action='store_true')
     parser.add_argument('--augmentation', action='store_true')
     parser.add_argument('--dagger', action='store_true')
-    parser.add_argument('--capacity', type=int, default=1000)         # if DAgger
-    parser.add_argument('--episodes_per_epoch', type=int, default=50) # if DAgger
-    parser.add_argument('--dagger_dataset_dir', type=Path)            # if DAgger
+    parser.add_argument('--capacity', type=int, default=1000)          # if DAgger
+    parser.add_argument('--episodes_per_epoch', type=int, default=100) # if DAgger
+    parser.add_argument('--dagger_dataset_dir', type=Path)             # if DAgger
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -358,7 +358,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v10.0'
+    ])) + '-v10.2'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
