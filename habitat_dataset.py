@@ -70,6 +70,9 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.positions = torch.Tensor(np.stack(itemgetter('x','y','z')(self.measurements), -1)[_indices])
         self.rotations = torch.Tensor(np.stack(itemgetter('i','j','k','l')(self.measurements), -1)[_indices])
 
+        self.left = Quaternion(axis=[0,1,0], degrees=10)
+        self.right = Quaternion(axis=[0,1,0], degrees=-10)
+
         if interpolate:
             _action_indices = []
             for _index, include in enumerate(_indices):
@@ -101,6 +104,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         source_rotation = Quaternion(*self.rotations[start,1:4], self.rotations[start,0])
         goal_position = self.end_position
         if end is not None:
+            end = min(end, self.positions.shape[0]-1)
             goal_position = self.positions[end]
 
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
@@ -112,12 +116,35 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return torch.Tensor([-direction_vector_agent[2], -direction_vector_agent[0]])
 
-    def _get_meta(self, start):
-        if not self.augmentation:
-            return self._get_direction(start)
+    def aug(self, start, rgb, action):
+        p = np.random.random()
 
-        # augmentation...
+        if p < 0.10: # flip image + action
+            #print('flip')
+            rgb = rgb.transpose(Image.FLIP_LEFT_RIGHT)
+            action = self._flip_action(action)
+            return rgb, action, self._get_direction(start)
 
+        if p < 0.25 and action == 1: # if we have a straight path, what if we had turned left?
+            #print('rot')
+            source_position = self.positions[start]
+            source_rotation = Quaternion(*self.rotations[start,1:4], self.rotations[start,0])
+            goal_position = self.end_position
+            
+            if np.random.random() < 0.50:
+                rotation, action = self.left, torch.LongTensor([3])[0]
+            else:
+                rotation, action = self.right, torch.LongTensor([2])[0]
+            direction = HabitatDataset.get_direction(source_position, rotation * source_rotation, goal_position)
+
+            return rgb, action, direction
+
+        if p < 0.50: # goal is k steps ahead, instead of end_position
+            #print('truncate')
+            k = np.random.randint(5, 30)
+            return rgb, action, self._get_direction(start, start+k)
+
+        return rgb, action, self._get_direction(start)
 
     def _flip_action(self, action):
         # 0: stop
@@ -125,21 +152,22 @@ class HabitatDataset(torch.utils.data.Dataset):
         # 2: left 10º
         # 3: right 10º
         if action == 2:
-            return 3
+            return torch.LongTensor([3])[0]
         if action == 3:
-            return 2
+            return torch.LongTensor([2])[0]
 
         return action
 
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
         action = self.actions[idx]
-        if self.augmentation and np.random.random() < 0.10:
-            rgb = rgb.transpose(Image.FLIP_LEFT_RIGHT)
-            action = self._flip_action(action)
+
+        if self.augmentation:
+            rgb, action, meta = self.aug(idx, rgb, action)
+        else:
+            meta = self._get_direction(start)
 
         rgb  = torch.Tensor(np.uint8(rgb))
-        meta = self._get_meta(idx)
 
         # rgb, mapview, segmentation, action, meta, episode
         return rgb, 0, 0, action, meta, self.episode_idx
