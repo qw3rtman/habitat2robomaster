@@ -66,15 +66,17 @@ def _get_hist2d(x, y):
     fig.add_trace(go.Histogram2d(
         x=x,
         y=y,
-        nbinsx=10,
-        nbinsy=50,
+        autobinx=False,
+        xbins=dict(start=0, end=25, size=2),
+        autobiny=False,
+        ybins=dict(start=0, end=1, size=0.05),
         histnorm='probability density',
         colorscale=["#cc0000", "#4e9a06", "#73d216", "#8ae234"]
     ))
 
     fig.update_layout(
-        xaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20 ),
-        yaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20 ),
+        xaxis=dict( ticks='', showgrid=False, zeroline=False, range=[0, 25] ),
+        yaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20, range=[0,1] ),
         autosize=False,
         height=550,
         width=550,
