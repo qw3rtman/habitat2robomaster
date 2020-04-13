@@ -60,7 +60,7 @@ class HabitatDataset(torch.utils.data.Dataset):
                     _indices[i] = False
 
             self.imgs = [rgb for i, rgb in enumerate(sorted(episode_dir.glob('rgb_*.png'))) if _indices[i]]
-            self.segs = [seg for i, rgb in enumerate(sorted(episode_dir.glob('seg_*.npy'))) if _indices[i]]
+            self.segs = [seg for i, seg in enumerate(sorted(episode_dir.glob('seg_*.npy'))) if _indices[i]]
         else:
             self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
             self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
@@ -94,12 +94,19 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.imgs)
 
+    def _get_meta(self):
+        np.random.random()
+
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
         rgb    = torch.Tensor(np.uint8(rgb))
 
         #seg    = torch.Tensor(np.float32(np.load(self.segs[idx])))
         action = self.actions[idx]
+        # 0: stop
+        # 1: forward
+        # 2: left 10º
+        # 3: right 10º
 
         # curr rot, end pos - curr pos
         meta = torch.cat([self.rotations[idx,[0,2]], self.end_position[:2] - self.positions[idx,:2]], dim=-1)

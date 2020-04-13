@@ -30,10 +30,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
@@ -178,6 +178,7 @@ class Rollout:
                 'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
                 'rgb': self.observations['rgb'],
                 'depth': self.observations['depth'],
+                'compass': self.observations['pointgoal_with_gps_compass'],
                 #'semantic': self.observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
@@ -248,6 +249,7 @@ def save_episode(env, episode_dir):
             'step': step['step'],
             'action': action['action'],
             'collision': step['collision'],
+            'compass': step['compass'],
             'x': step['position'][0],
             'y': step['position'][1],
             'z': step['position'][2],
