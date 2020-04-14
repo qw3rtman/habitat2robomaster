@@ -27,7 +27,7 @@ def get_env(model):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    env = Rollout(**teacher_args, student=net)
+    env = Rollout(**teacher_args, student=net, split='val')
     env.mode = 'student'
 
     return env
@@ -50,36 +50,37 @@ if __name__ == '__main__':
     else:
         model_path = model_path / f'model_{parsed.epoch:03}.t7'
 
-    task = get_model_args(model_path, 'teacher_args')['task']
+    summary = defaultdict(float)
 
+    task = get_model_args(model_path, 'teacher_args')['task']
     env = get_env(model_path)
     for ep in range(parsed.num_episodes):
-        lwns, longest, length = 0, 0, 0
+        print(f'[!] Start Episode {ep:06}')
 
         for i, step in enumerate(env.rollout()):
-            lwns = max(lwns, longest)
-            if step['is_stuck']:
-                longest = 0
-                print('stuck?')
-                #break
-            longest += 1
-            length += 1
-
-            if parsed.display:
-                cv2.imshow('rgb', step['rgb'])
-                cv2.waitKey(10 if parsed.auto else 0)
-
-        if task == 'dontcrash':
-            if parsed.human:
-                print(f'[!] Finish Episode {ep:06}, Length: {length}, LWNS: {lwns}, LWNS_norm: {lwns/length}\n')
-            else:
-                print(f'{lwns},{lwns/length}')
-        elif task == 'pointgoal':
             source_position = env.state.position
             rot = env.state.rotation.components
             source_rotation = Quaternion(*rot[1:4], rot[0])
             goal_position = env.env.current_episode.goals[0].position
             direction = HabitatDataset.get_direction(source_position, source_rotation, goal_position).unsqueeze(dim=0)
-            spl, success, dtg = itemgetter('spl', 'success', 'distance_to_goal')(env.env.get_metrics())
+            distance = np.linalg.norm(direction)
+            print(f' [*] Step {i: >3}, Direction: ({direction[0,0].item(): >6.2f}, {direction[0,1].item(): >6.2f})   {distance: >5.2f}', end='')
 
-            print(f'[!] Finish Episode {ep:06}, DTG: {dtg}, Success: {success}, SPL: {spl}, Direction: {direction}\n')
+            if step['is_stuck']:
+                print(' (stuck?)')
+                #break
+            else:
+                print()
+
+            if parsed.display:
+                cv2.imshow('rgb', step['rgb'])
+                if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
+                    break
+
+        spl, success, dtg = itemgetter('spl', 'success', 'distance_to_goal')(env.env.get_metrics())
+        for m, v in env.env.get_metrics().items():
+            if m in METRICS:
+                summary[m] += v
+        print(f'[!] Finish Episode {ep:06}, DTG: {dtg}, Success: {success}, SPL: {spl}, Direction: {direction}\n')
+
+    print('Aggregate: {}'.format({k: v / parsed.num_episodes for k, v in summary.items() if k in METRICS}))

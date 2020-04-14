@@ -25,7 +25,7 @@ from gym.spaces import Box, Dict, Discrete
 
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 MODES = ['student', 'teacher', 'both']
-METRICS = ['distance_to_goal', 'success', 'spl']
+METRICS = ['success', 'spl']
 
 jitter_threshold = {
     'rgb': 1e-2,
@@ -33,10 +33,10 @@ jitter_threshold = {
 }
 
 MODELS = {
-    'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-    #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
-    #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
+    #'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+    #'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
+    'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
