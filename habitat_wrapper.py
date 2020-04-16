@@ -34,14 +34,15 @@ jitter_threshold = {
 
 MODELS = {
     'rgb':   '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-    'depth':   '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+    'depth':   '/scratch/cluster/nimit/habitat/habitat-api/data/ddppo-models/gibson-4plus-mp3d-train-val-test-resnet50.pth',
     #'rgb':   '/Users/nimit/Documents/robomaster/habitat/models/v2/rgb.pth',
     #'depth': '/Users/nimit/Documents/robomaster/habitat/models/v2/depth.pth'
 }
 
 CONFIGS = {
     'depth': {
-        'train': 'configs/pointgoal-depth-train.yaml',
+        #'train': 'configs/pointgoal-depth-train.yaml',
+        'train': 'config/pointnav/ddppo_pointnav.yaml',
         'val': 'configs/pointgoal-depth-val.yaml'
     },
     'rgb': {
@@ -84,7 +85,7 @@ class Rollout:
 
         env_config = get_config(CONFIGS[c.INPUT_TYPE][split])
         self.env = Env(config=env_config)
-        self.agent = PPOAgent(c)
+        self.agent = PPOAgent(c, ddppo=True)
 
     def clean(self):
         self.agent.reset()
@@ -184,7 +185,7 @@ class Rollout:
                 'depth': self.observations['depth'],
                 'compass_r': self.observations['pointgoal_with_gps_compass'][0],
                 'compass_t': self.observations['pointgoal_with_gps_compass'][1],
-                #'semantic': self.observations['semantic'],
+                'semantic': self.observations['semantic'],
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
             }

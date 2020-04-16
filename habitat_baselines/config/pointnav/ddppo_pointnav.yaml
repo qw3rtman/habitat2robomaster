@@ -1,5 +1,6 @@
 #BASE_TASK_CONFIG_PATH: "/Users/nimit/Documents/robomaster/habitat/habitat-api/configs/tasks/pointnav_gibson.yaml"
-BASE_TASK_CONFIG_PATH: "/Users/nimit/Documents/robomaster/habitat/habitat-api/configs/tasks/pointnav.yaml"
+#BASE_TASK_CONFIG_PATH: "/Users/nimit/Documents/robomaster/habitat/habitat-api/configs/tasks/pointnav.yaml"
+BASE_TASK_CONFIG_PATH: "/scratch/cluster/nimit/habitat/habitat-api/configs/tasks/pointnav_gibson.yaml"
 LOG_FILE: 'test.log'
 TRAINER_NAME: "ddppo"
 ENV_NAME: "NavRLEnv"

@@ -18,6 +18,7 @@ from habitat.config.default import get_config
 from habitat.core.agent import Agent
 from habitat_baselines.common.utils import batch_obs
 from habitat_baselines.rl.ppo import PointNavBaselinePolicy
+from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
 
 
 def get_default_config():
@@ -33,7 +34,7 @@ def get_default_config():
 
 
 class PPOAgent(Agent):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, ddppo=False):
         self.goal_sensor_uuid = config.GOAL_SENSOR_UUID
         spaces = {
             self.goal_sensor_uuid: Box(
@@ -75,12 +76,25 @@ class PPOAgent(Agent):
         if torch.cuda.is_available():
             torch.backends.cudnn.deterministic = True
 
-        self.actor_critic = PointNavBaselinePolicy(
-            observation_space=observation_spaces,
-            action_space=action_spaces,
-            hidden_size=self.hidden_size,
-            goal_sensor_uuid=self.goal_sensor_uuid,
-        )
+        if ddppo:
+            self.actor_critic = PointNavResNetPolicy(
+                observation_space=observation_spaces,
+                action_space=action_spaces,
+                hidden_size=self.hidden_size,
+                rnn_type='LSTM',#self.config.RL.DDPPO.rnn_type,
+                num_recurrent_layers=2,#self.config.RL.DDPPO.num_recurrent_layers,
+                backbone='resnet50',#self.config.RL.DDPPO.backbone,
+                goal_sensor_uuid=self.goal_sensor_uuid,
+                normalize_visual_inputs=False,#"rgb"
+                #in self.envs.observation_spaces[0].spaces,
+            )
+        else:
+            self.actor_critic = PointNavBaselinePolicy(
+                observation_space=observation_spaces,
+                action_space=action_spaces,
+                hidden_size=self.hidden_size,
+                goal_sensor_uuid=self.goal_sensor_uuid,
+            )
         self.actor_critic.to(self.device)
 
         if config.MODEL_PATH:

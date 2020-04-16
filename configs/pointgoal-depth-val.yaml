@@ -4,7 +4,7 @@ ENVIRONMENT:
   NUM_PROCESSES: 8
 SIMULATOR:
   AGENT_0:
-    SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR']
+    SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
     NUM_PROCESSES: 8
   HABITAT_SIM_V0:
     GPU_DEVICE_ID: 0
@@ -13,6 +13,9 @@ SIMULATOR:
     WIDTH: 256
     HEIGHT: 256
   DEPTH_SENSOR:
+    WIDTH: 256
+    HEIGHT: 256
+  SEMANTIC_SENSOR:
     WIDTH: 256
     HEIGHT: 256
 TASK:
@@ -31,7 +34,7 @@ TASK:
 DATASET:
   TYPE: PointNav-v1
   SPLIT: val
-  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
+  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
   SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
   #DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
   #SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
