@@ -358,13 +358,14 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v10.2'
+    ])) + '-v10.5'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     config = {
             'run_name': run_name,
+            'notes': 'modify goal truncate aug to (1,20); val on val dataset',
             'max_epoch': parsed.max_epoch,
             'checkpoint_dir': checkpoint_dir,
             'dagger': parsed.dagger,

@@ -4,7 +4,7 @@ from pathlib import Path
 jobs = list()
 
 for resnet_model in ['resnet18', 'resnet50', 'se_resneXt50']:
-    for dataset_size, interpolate_flag, interpolate_name in [(0.3, '--interpolate', 'interpolate')]: #, (1.0, '', 'original')]:
+    for dataset_size, interpolate_flag, interpolate_name in [(1.0, '', 'original')]: #, (0.3, '--interpolate', 'interpolate')]:
         for batch_size in [64, 128]: # 32
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [5e-5]: # 5e-4

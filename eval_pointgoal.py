@@ -2,6 +2,8 @@ from habitat_wrapper import Rollout, METRICS
 from habitat_dataset import HabitatDataset
 from model import get_model
 
+from habitat_sim.utils.common import d3_40_colors_rgb
+
 import argparse
 from collections import defaultdict
 from operator import itemgetter
@@ -27,8 +29,8 @@ def get_env(model):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    env = Rollout(**teacher_args, student=net, split='val')
-    env.mode = 'student'
+    env = Rollout(**teacher_args, student=net, split='val', mode='student')
+    #env.mode = 'teacher'
 
     return env
 
@@ -74,6 +76,14 @@ if __name__ == '__main__':
 
             if parsed.display:
                 cv2.imshow('rgb', step['rgb'])
+                cv2.imshow('depth', step['depth'])
+                #print(np.unique(step['semantic']))
+                semantic_img = Image.new("P", (step['semantic'].shape[1], step['semantic'].shape[0]))
+                semantic_img.putpalette(d3_40_colors_rgb.flatten())
+                semantic_img.putdata((step['semantic'].flatten() % 40).astype(np.uint8))
+                semantic_img = semantic_img.convert("RGBA")
+                semantic_img.save(Path(f'trash/{i:03}.png'))
+                cv2.imshow('semantic', np.uint8(semantic_img))
                 if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
                     break
 
