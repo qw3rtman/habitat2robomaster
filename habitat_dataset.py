@@ -3,6 +3,7 @@ import torch
 import cv2
 import pandas as pd
 from torchvision import transforms
+from torch.nn.utils.rnn import pad_sequence
 from PIL import Image
 from pyquaternion import Quaternion
 
@@ -16,7 +17,7 @@ from utils import StaticWrap, DynamicWrap
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, **kwargs):
+def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, **kwargs):
 
     def make_dataset(is_train):
         data = list()
@@ -32,10 +33,49 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, capacity=2000, bat
 
         if dagger:
             return DynamicWrap(data, batch_size, 1000 if is_train else 100, num_workers, capacity=capacity)
+        elif rnn:
+            return EpisodeDataset(data)
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
     return make_dataset(True), make_dataset(False)
+
+
+def collate_episodes(episodes):
+    rgbs, actions, prev_actions, metas = [], [], [], []
+    for i, episode in enumerate(episodes):
+        rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
+
+        actions.append(episode.actions)
+        prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
+        prev_actions[i][1:] = episode.actions[:-1].clone()
+
+        metas.append(torch.zeros((len(episode), 2), dtype=torch.float))
+
+        for t, step in enumerate(episode):
+            rgb, _, _, action, meta, _, prev_action = step
+            rgbs[i][t] = rgb
+            metas[i][t] = meta
+
+    rgb_batch = pad_sequence(rgbs)
+    action_batch = pad_sequence(actions)
+    prev_action_batch = pad_sequence(prev_actions)
+    meta_batch = pad_sequence(metas)
+
+    mask = (action_batch != 0)
+
+    return rgb_batch, action_batch, prev_action_batch, meta_batch, mask
+
+
+class EpisodeDataset(torch.utils.data.Dataset):
+    def __init__(self, episodes):
+        self.episodes = episodes
+
+    def __len__(self):
+        return len(self.episodes)
+
+    def __getitem__(self, idx):
+        return self.episodes[idx]
 
 
 class HabitatDataset(torch.utils.data.Dataset):
@@ -91,6 +131,7 @@ class HabitatDataset(torch.utils.data.Dataset):
             self.actions = torch.LongTensor(self.measurements['action'])
 
         self.info = pd.read_csv(episode_dir / 'info.csv').iloc[0]
+        self.scene = self.info['scene']
         self.start_position = torch.Tensor(itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info))
         # NOTE: really a quaternion
         self.start_rotation = torch.Tensor(itemgetter('start_rot_i', 'start_rot_j', 'start_rot_k', 'start_rot_l')(self.info))
@@ -119,13 +160,15 @@ class HabitatDataset(torch.utils.data.Dataset):
     def aug(self, start, rgb, action):
         p = np.random.random()
 
+        """
         if p < 0.10: # flip image + action
             #print('flip')
             rgb = rgb.transpose(Image.FLIP_LEFT_RIGHT)
             action = self._flip_action(action)
             return rgb, action, self._get_direction(start)
+        """
 
-        if p < 0.25 and action == 1: # if we have a straight path, what if we had turned left?
+        if p < 0.15 and action == 1: # if we have a straight path, what if we had turned left?
             #print('rot')
             source_position = self.positions[start]
             source_rotation = Quaternion(*self.rotations[start,1:4], self.rotations[start,0])
@@ -139,12 +182,12 @@ class HabitatDataset(torch.utils.data.Dataset):
 
             return rgb, action, direction
 
-        if p < 0.45: # goal is k steps ahead, instead of end_position
+        if p < 0.35: # goal is k steps ahead, instead of end_position
             #print('truncate')
             k = np.random.randint(1, 30)
             return rgb, action, self._get_direction(start, start+k)
 
-        if p < 0.50: # stop if within 0.20
+        if p < 0.40: # stop if within 0.20
             x = np.random.random() * 0.20
             y = np.random.random() * np.sqrt(0.20**2 - x**2)
 
@@ -167,6 +210,7 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
         action = self.actions[idx]
+        prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
 
         if self.augmentation:
             rgb, action, meta = self.aug(idx, rgb, action)
@@ -175,8 +219,8 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         rgb  = torch.Tensor(np.uint8(rgb))
 
-        # rgb, mapview, segmentation, action, meta, episode
-        return rgb, 0, 0, action, meta, self.episode_idx
+        # rgb, mapview, segmentation, action, meta, episode, prev_action
+        return rgb, 0, 0, action, meta, self.episode_idx, prev_action
 
     def __lt__(self, other):
         return self.loss < other.loss

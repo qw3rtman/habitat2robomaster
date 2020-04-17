@@ -104,17 +104,19 @@ class ConditionalStateEncoderImitation(nn.Module):
         self.prev_actions = torch.zeros(batch_size, 1, dtype=torch.long) # move to GPU
 
     def forward(self, x):
-        rgb, meta = x
-        batch = {'rgb': rgb, 'pointgoal_with_gps_compass': meta}
+        # S x B x ...
+        rgb, direction, prev_action = x
+        batch = {'rgb': rgb, 'pointgoal_with_gps_compass': direction}
 
         _, actions, action_log_probs, self.test_recurrent_hidden_states = self.actor_critic.act(
             batch,
             self.test_recurrent_hidden_states.detach(),
-            self.prev_actions,
+            #self.prev_actions,
+            prev_action,
             self.not_done_masks,
             deterministic=False)
 
-        self.prev_actions.copy_(actions)
+        #self.prev_actions.copy_(actions)
         # NOTE: Make masks not done till reset (end of episode) will be called
         # NOTE: have some dataset __getitem__ property that triggers this?
         self.not_done_masks = torch.ones(1, 1) # move to GPU
