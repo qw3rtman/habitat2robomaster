@@ -74,14 +74,13 @@ if __name__ == '__main__':
             else:
                 print()
 
-            if parsed.display and (not parsed.auto or i % 5 == 0):
+            if parsed.display:# and (not parsed.auto or i % 5 == 0):
                 cv2.imshow('rgb', step['rgb'])
                 cv2.imshow('depth', step['depth'])
                 semantic_img = Image.new("P", (step['semantic'].shape[1], step['semantic'].shape[0]))
                 semantic_img.putpalette(d3_40_colors_rgb.flatten())
                 semantic_img.putdata((step['semantic'].flatten() % 40).astype(np.uint8))
                 semantic_img = semantic_img.convert("RGBA")
-                semantic_img.save(Path(f'trash/{i:03}.png'))
                 cv2.imshow('semantic', np.uint8(semantic_img))
                 if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
                     break

@@ -1,0 +1,89 @@
+NUM_PROCESSES: 8
+ENVIRONMENT:
+  MAX_EPISODE_STEPS: 500 
+  NUM_PROCESSES: 8
+SIMULATOR:
+  AGENT_0:
+    SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+    NUM_PROCESSES: 8
+  HABITAT_SIM_V0:
+    GPU_DEVICE_ID: 0
+    NUM_PROCESSES: 8
+  RGB_SENSOR:
+    WIDTH: 256 
+    HEIGHT: 256 
+  DEPTH_SENSOR:
+    WIDTH: 256 
+    HEIGHT: 256 
+  SEMANTIC_SENSOR:
+    WIDTH: 256 
+    HEIGHT: 256 
+TASK:
+  TYPE: Nav-v0
+  SUCCESS_DISTANCE: 0.2 
+
+  SENSORS: ['POINTGOAL_WITH_GPS_COMPASS_SENSOR']
+  POINTGOAL_WITH_GPS_COMPASS_SENSOR:
+    GOAL_FORMAT: "POLAR"
+    DIMENSIONALITY: 2
+  GOAL_SENSOR_UUID: pointgoal_with_gps_compass
+
+  MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL', 'COLLISIONS']
+  SUCCESS:
+    SUCCESS_DISTANCE: 0.2 
+DATASET:
+  TYPE: PointNav-v1
+  SPLIT: val
+  #DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
+  #SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
+  DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
+  SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
+ENV_NAME: "NavRLEnv"
+
+EVAL:
+  USE_CKPT_CONFIG: False
+
+RL:
+  SUCCESS_REWARD: 2.5
+  PPO:
+    # ppo params
+    clip_param: 0.2
+    ppo_epoch: 2
+    num_mini_batch: 2
+    value_loss_coef: 0.5
+    entropy_coef: 0.01
+    lr: 2.5e-4
+    eps: 1e-5
+    max_grad_norm: 0.2
+    num_steps: 128
+    use_gae: True
+    gamma: 0.99
+    tau: 0.95
+    use_linear_clip_decay: False
+    use_linear_lr_decay: False
+    reward_window_size: 50
+
+    use_normalized_advantage: False
+
+    hidden_size: 512
+
+  DDPPO:
+    sync_frac: 0.6
+    # The PyTorch distributed backend to use
+    distrib_backend: GLOO
+    # Visual encoder backbone
+    #pretrained_weights: /Users/nimit/Documents/robomaster/habitat/models/v2/gibson-2plus-resnet50.pth
+    #pretrained_weights: /scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth
+    # Initialize with pretrained weights
+    pretrained: False
+    # Initialize just the visual encoder backbone with pretrained weights
+    pretrained_encoder: False
+    # Whether or not the visual encoder backbone will be trained.
+    train_encoder: True
+    # Whether or not to reset the critic linear layer
+    reset_critic: True
+
+    # Model parameters
+    backbone: resnet50
+    rnn_type: LSTM
+    num_recurrent_layers: 2
