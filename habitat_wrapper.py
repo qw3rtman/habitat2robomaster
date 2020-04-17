@@ -34,10 +34,10 @@ jitter_threshold = {
 
 MODELS = {
     'depth': {
-        #'ppo': '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-        'ppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ppo/depth.pth',
-        #'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth',
-        'ddppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth'
+        'ppo': '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
+        #'ppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ppo/depth.pth',
+        'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth',
+        #'ddppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth'
     }
 }
 
@@ -239,17 +239,19 @@ def save_episode(env, episode_dir):
     for i, step in enumerate(get_episode(env)):
         length += 1
 
+        """
         if step['is_stuck'] or step['is_slide']:
             longest = 0
             if env.mode in ['teacher', 'both']:
                 continue
+        """
         longest += 1
 
         lwns = max(lwns, longest)
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         np.save(episode_dir / f'depth_{i:04}', step['depth'])
-        #np.save(episode_dir / f'seg_{i:04}', step['semantic'])
+        np.save(episode_dir / f'seg_{i:04}', step['semantic'])
         if env.mode == 'both':
             action = step['action']['teacher']
         else:
@@ -273,6 +275,7 @@ def save_episode(env, episode_dir):
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 
     info = env.env.get_metrics()
+    info['scene'] = Path(env.env.sim._current_scene).stem
     info['lwns'] = lwns
     info['lwns_norm'] = lwns / length
     info['collisions'] = info['collisions']['count'] if info['collisions'] else 0

@@ -30,7 +30,7 @@ def get_env(model):
 
     teacher_args = get_model_args(model, 'teacher_args')
     env = Rollout(**teacher_args, student=net, split='val', mode='student')
-    env.mode = 'teacher'
+    #env.mode = 'teacher'
 
     return env
 
