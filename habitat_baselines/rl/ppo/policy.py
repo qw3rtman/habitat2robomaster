@@ -47,6 +47,7 @@ class Policy(nn.Module):
         else:
             action = distribution.sample()
 
+        self.prev_distribution = distribution
         action_log_probs = distribution.log_probs(action)
 
         return value, action, action_log_probs, rnn_hidden_states
