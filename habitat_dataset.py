@@ -4,6 +4,7 @@ import cv2
 import pandas as pd
 from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader
 from PIL import Image
 from pyquaternion import Quaternion
 
@@ -34,7 +35,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         if dagger:
             return DynamicWrap(data, batch_size, 1000 if is_train else 100, num_workers, capacity=capacity)
         elif rnn:
-            return EpisodeDataset(data)
+            return DataLoader(EpisodeDataset(data), batch_size=batch_size, num_workers=num_workers, collate_fn=collate_episodes, pin_memory=True)
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
@@ -62,7 +63,7 @@ def collate_episodes(episodes):
     prev_action_batch = pad_sequence(prev_actions)
     meta_batch = pad_sequence(metas)
 
-    mask = (action_batch != 0)
+    mask = (action_batch != 0).float()
 
     return rgb_batch, action_batch, prev_action_batch, meta_batch, mask
 

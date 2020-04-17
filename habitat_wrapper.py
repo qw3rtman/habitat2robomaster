@@ -55,7 +55,7 @@ CONFIGS = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, split='train', gpu_id=0, **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, split='train', gpu_id=0, **kwargs):
         assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
@@ -66,6 +66,7 @@ class Rollout:
         self.proxy = proxy
         self.mode = mode
         self.student = student
+        self.rnn = rnn
 
         c = Config()
 
@@ -96,6 +97,8 @@ class Rollout:
         self.observations = self.env.reset()
 
         self.i = 0
+
+        self.prev_action = torch.LongTensor([0])[0]
 
         self.d_pos = deque(maxlen=10)
         self.d_rot = deque(maxlen=10)
@@ -146,9 +149,13 @@ class Rollout:
             meta = HabitatDataset.get_direction(source_position, source_rotation, goal_position).unsqueeze(dim=0)
             meta = meta.to(self.device)
 
-            out = self.student((rgb, meta))
+            if self.rnn:
+                out = self.student((rgb, meta, self.prev_action, torch.ones(1, 1)))
+            else:
+                out = self.student((rgb, meta))
 
-        return {'action': out[0].argmax().item()}, out # action, logits
+        self.prev_action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample()
+        return {'action': self.prev_action.item()}, out # action, logits
 
     def get_action(self):
         if self.mode == 'student':

@@ -73,7 +73,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, resnet_model='resnet50', batch_size=64):
+    def __init__(self, resnet_model='resnet50', batch_size=64, **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         observation_spaces, action_spaces = spaces.Dict({
@@ -99,26 +99,18 @@ class ConditionalStateEncoderImitation(nn.Module):
             tgt_mode='nimit' # NOTE: (dx, dy)
         )
 
-        self.test_recurrent_hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, batch_size, 512) # move to GPU
-        self.not_done_masks = torch.zeros(batch_size, 1) # move to GPU
-        self.prev_actions = torch.zeros(batch_size, 1, dtype=torch.long) # move to GPU
+        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, batch_size, 512) # move to GPU
 
     def forward(self, x):
         # S x B x ...
-        rgb, direction, prev_action = x
+        rgb, direction, prev_action, mask = x
         batch = {'rgb': rgb, 'pointgoal_with_gps_compass': direction}
 
-        _, actions, action_log_probs, self.test_recurrent_hidden_states = self.actor_critic.act(
+        _, actions, action_log_probs, self.hidden_states = self.actor_critic.act(
             batch,
-            self.test_recurrent_hidden_states.detach(),
-            #self.prev_actions,
-            prev_action,
-            self.not_done_masks,
+            self.hidden_states.detach(),
+            prev_action.unsqueeze(dim=1),
+            mask.unsqueeze(dim=1),
             deterministic=False)
-
-        #self.prev_actions.copy_(actions)
-        # NOTE: Make masks not done till reset (end of episode) will be called
-        # NOTE: have some dataset __getitem__ property that triggers this?
-        self.not_done_masks = torch.ones(1, 1) # move to GPU
 
         return self.actor_critic.prev_distribution.logits
