@@ -30,6 +30,7 @@ class PointNavResNetPolicy(Policy):
         resnet_baseplanes=32,
         backbone="resnet50",
         normalize_visual_inputs=False,
+        tgt_mode='ddppo'
     ):
         super().__init__(
             PointNavResNetNet(
@@ -42,6 +43,7 @@ class PointNavResNetPolicy(Policy):
                 backbone=backbone,
                 resnet_baseplanes=resnet_baseplanes,
                 normalize_visual_inputs=normalize_visual_inputs,
+                tgt_mode=tgt_mode
             ),
             action_space.n,
         )
@@ -165,16 +167,20 @@ class PointNavResNetNet(Net):
         backbone,
         resnet_baseplanes,
         normalize_visual_inputs,
+        tgt_mode='ddppo'
     ):
         super().__init__()
         self.goal_sensor_uuid = goal_sensor_uuid
+        self.tgt_mode = tgt_mode
 
         self.prev_action_embedding = nn.Embedding(action_space.n + 1, 32)
         self._n_prev_action = 32
 
-        self._n_input_goal = (
-            observation_space.spaces[self.goal_sensor_uuid].shape[0] + 1
-        )
+        if tgt_mode == 'nimit':
+            self._n_input_goal = observation_space.spaces[self.goal_sensor_uuid].shape[0] # i.e: 2
+        else:
+            self._n_input_goal = observation_space.spaces[self.goal_sensor_uuid].shape[0] + 1
+
         self.tgt_embeding = nn.Linear(self._n_input_goal, 32)
         self._n_input_goal = 32
 
@@ -221,6 +227,10 @@ class PointNavResNetNet(Net):
 
     def get_tgt_encoding(self, observations):
         goal_observations = observations[self.goal_sensor_uuid]
+
+        if self.tgt_mode == 'nimit':
+            return self.tgt_embeding(goal_observations)
+
         goal_observations = torch.stack(
             [
                 goal_observations[:, 0],
