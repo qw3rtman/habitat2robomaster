@@ -35,7 +35,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         if dagger:
             return DynamicWrap(data, batch_size, 1000 if is_train else 100, num_workers, capacity=capacity)
         elif rnn:
-            return DataLoader(EpisodeDataset(data), batch_size=batch_size, num_workers=num_workers, collate_fn=collate_episodes, pin_memory=True)
+            return StaticWrap(EpisodeDataset(data), batch_size, 5 if is_train else 1, num_workers, collate_fn=collate_episodes)
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 

@@ -73,7 +73,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, resnet_model='resnet50', batch_size=64, **kwargs):
+    def __init__(self, batch_size, resnet_model='resnet50'):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         observation_spaces, action_spaces = spaces.Dict({
@@ -99,7 +99,8 @@ class ConditionalStateEncoderImitation(nn.Module):
             tgt_mode='nimit' # NOTE: (dx, dy)
         )
 
-        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, batch_size, 512) # move to GPU
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, batch_size, 512).to(self.device)
 
     def forward(self, x):
         # S x B x ...
@@ -108,9 +109,9 @@ class ConditionalStateEncoderImitation(nn.Module):
 
         _, actions, action_log_probs, self.hidden_states = self.actor_critic.act(
             batch,
-            self.hidden_states.detach(),
-            prev_action.unsqueeze(dim=1),
-            mask.unsqueeze(dim=1),
+            self.hidden_states.detach()[:,:rgb.shape[0]],
+            prev_action.unsqueeze(dim=1)[:rgb.shape[0]],
+            mask.unsqueeze(dim=1)[:rgb.shape[0]],
             deterministic=False)
 
         return self.actor_critic.prev_distribution.logits

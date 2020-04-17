@@ -98,7 +98,8 @@ class Rollout:
 
         self.i = 0
 
-        self.prev_action = torch.LongTensor([0])[0]
+        self.prev_action = torch.zeros(1, dtype=torch.long).to(self.device)
+        self.mask = torch.ones(1).to(self.device)
 
         self.d_pos = deque(maxlen=10)
         self.d_rot = deque(maxlen=10)
@@ -150,11 +151,11 @@ class Rollout:
             meta = meta.to(self.device)
 
             if self.rnn:
-                out = self.student((rgb, meta, self.prev_action, torch.ones(1, 1)))
+                out = self.student((rgb, meta, self.prev_action, self.mask))
             else:
                 out = self.student((rgb, meta))
 
-        self.prev_action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample()
+        self.prev_action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device)
         return {'action': self.prev_action.item()}, out # action, logits
 
     def get_action(self):

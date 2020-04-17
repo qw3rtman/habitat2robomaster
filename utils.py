@@ -12,21 +12,21 @@ def repeater(loader):
             yield data
 
 
-def dataloader(data, batch_size, num_workers):
+def dataloader(data, batch_size, num_workers, collate_fn=None):
     return torch.utils.data.DataLoader(
             data, batch_size=batch_size, num_workers=num_workers,
-            shuffle=True, drop_last=True, pin_memory=True)
+            shuffle=True, drop_last=True, pin_memory=True,
+            collate_fn=collate_fn)
 
-
-def infinite_dataloader(data, batch_size, num_workers):
-    return repeater(dataloader(data, batch_size, num_workers))
+def infinite_dataloader(data, batch_size, num_workers, collate_fn=None):
+    return repeater(dataloader(data, batch_size, num_workers, collate_fn))
 
 
 class StaticWrap(object):
-    def __init__(self, data, batch_size, samples, num_workers):
+    def __init__(self, data, batch_size, samples, num_workers, collate_fn=None):
         self.episodes = torch.utils.data.ConcatDataset(data)
 
-        self.data = infinite_dataloader(self.episodes, batch_size, num_workers)
+        self.data = infinite_dataloader(self.episodes, batch_size, num_workers, collate_fn)
         self.samples = samples
         self.count = 0
 

@@ -98,6 +98,7 @@ def validate(net, env, data, config):
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
+        prev_action = prev_action.to(config['device'])
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
@@ -217,6 +218,7 @@ def train(net, env, data, optim, config):
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
+        prev_action = prev_action.to(config['device'])
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
@@ -275,7 +277,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = ConditionalStateEncoderImitation(*config['student_args'], batch_size=config['data_args']['batch_size']).to(config['device'])
+    net = ConditionalStateEncoderImitation(config['data_args']['batch_size'], **config['student_args']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'])
 
     if config['dagger']:
@@ -362,7 +364,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.0'
+    ])) + '-v11.3'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -382,8 +384,7 @@ if __name__ == '__main__':
                 },
 
             'student_args': {
-                'resnet_model': parsed.resnet_model,
-                'conditional': parsed.conditional
+                'resnet_model': parsed.resnet_model
                 },
 
             'data_args': {
