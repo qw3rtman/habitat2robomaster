@@ -24,9 +24,12 @@ def infinite_dataloader(data, batch_size, num_workers, collate_fn=None):
 
 class StaticWrap(object):
     def __init__(self, data, batch_size, samples, num_workers, collate_fn=None):
-        self.episodes = torch.utils.data.ConcatDataset(data)
+        if collate_fn:
+            self.data = infinite_dataloader(data, batch_size, num_workers, collate_fn)
+        else:
+            self.episodes = torch.utils.data.ConcatDataset(data)
+            self.data = infinite_dataloader(self.episodes, batch_size, num_workers, collate_fn)
 
-        self.data = infinite_dataloader(self.episodes, batch_size, num_workers, collate_fn)
         self.samples = samples
         self.count = 0
 
