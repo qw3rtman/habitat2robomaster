@@ -88,6 +88,7 @@ def _get_hist2d(x, y):
 
 def validate(net, env, data, config):
     net.eval()
+    net.batch_size = config['data_args']['batch_size']
     env.mode = 'student'
 
     losses = list()
@@ -96,6 +97,8 @@ def validate(net, env, data, config):
 
     # static validation set
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
+        net.clean()
+
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
         prev_action = prev_action.to(config['device'])
@@ -103,8 +106,6 @@ def validate(net, env, data, config):
         mask = mask.to(config['device'])
 
         for t in range(rgb.shape[0]):
-            net.clean()
-
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
@@ -124,6 +125,7 @@ def validate(net, env, data, config):
                     step=wandb.run.summary['step'])
 
     # rollout
+    net.batch_size = 1
     if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
         distance_to_goal = np.zeros(NUM_EPISODES)
         success = np.zeros(NUM_EPISODES)
@@ -132,6 +134,8 @@ def validate(net, env, data, config):
 
         for ep in range(NUM_EPISODES):
             images = []
+
+            net.clean()
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
                     frame = Image.fromarray(step['rgb'])
@@ -182,50 +186,13 @@ def validate(net, env, data, config):
 
 
 def train(net, env, data, optim, config):
-    if config['dagger']:
-        net.eval()
-        env.mode = 'both'
-
-        # allow longer episodes as training progresses
-        #env.max_episode_length = (wandb.run.summary['epoch'] + 1) * 20
-
-        # rollout some datasets; aggregate
-        summary_file = config['data_args']['dagger_dataset_dir'] / 'summary.csv'
-        summary = defaultdict(float)
-        summary['ep'] = 1
-        if summary_file.exists():
-            summary = pd.read_csv(summary_file).iloc[0]
-
-        num_episodes = 0
-        while num_episodes < config['data_args']['episodes_per_epoch']:
-            episode_dir = config['data_args']['dagger_dataset_dir'] / 'train' / '{:06}'.format(int(summary['ep']) + num_episodes)
-            if episode_dir.exists():
-                shutil.rmtree(episode_dir, ignore_errors=True)
-
-            episode_dir.mkdir(parents=True, exist_ok=True)
-            save_episode(env, episode_dir)
-            data.add_episode(HabitatDataset(episode_dir))
-
-            num_episodes += 1
-
-        summary['ep'] += num_episodes
-        pd.DataFrame([summary]).to_csv(summary_file, index=False)
-
-        for i, episode in enumerate(data.episodes.datasets):
-            episode.episode_idx = i
-
-        # cleanup after dagger
-        data.post_dagger()
-
-        episode_loss = np.zeros(len(data.episodes.datasets))
-        episode_step = np.ones(len(data.episodes.datasets)) # prevent divide by zero
+    net.train()
+    net.batch_size = config['data_args']['batch_size']
+    env.mode = 'teacher'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
-
-    net.train()
-    env.mode = 'teacher'
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         net.clean()
 
@@ -239,9 +206,6 @@ def train(net, env, data, optim, config):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
-            if config['dagger']:
-                episode_loss[episode_idx] += loss.detach().cpu().numpy() # unnormalized
-                episode_step[episode_idx] += 1
 
             loss_mean = loss.mean()
             losses.append(loss_mean.item())
@@ -263,15 +227,6 @@ def train(net, env, data, optim, config):
 
             tick = time.time()
 
-    if config['dagger']:
-        # normalize episode losses
-        normalized_episode_loss = np.divide(episode_loss, episode_step)
-        for i, episode in enumerate(data.episodes.datasets):
-            episode.loss = normalized_episode_loss[i]
-
-        # balance heap
-        data.post_train()
-
     return np.mean(losses)
 
 
@@ -292,9 +247,6 @@ def checkpoint_project(net, optim, scheduler, config):
 def main(config):
     net = ConditionalStateEncoderImitation(config['data_args']['batch_size'], **config['student_args']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'])
-
-    if config['dagger']:
-        (config['data_args']['dagger_dataset_dir'] / 'train').mkdir(parents=True, exist_ok=True)
 
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
     env_val = Rollout(**config['teacher_args'], student=net, rnn=True, split='val')
@@ -321,7 +273,6 @@ def main(config):
 
         checkpoint_project(net, optim, scheduler, config)
 
-        # NOTE: don't do dagger for now
         loss_train = train(net, env_val, data_train, optim, config)
         with torch.no_grad():
             loss_val = validate(net, env_val, data_val, config)
@@ -360,10 +311,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--interpolate', action='store_true')
     parser.add_argument('--augmentation', action='store_true')
-    parser.add_argument('--dagger', action='store_true')
     parser.add_argument('--capacity', type=int, default=1000)          # if DAgger
     parser.add_argument('--episodes_per_epoch', type=int, default=100) # if DAgger
-    parser.add_argument('--dagger_dataset_dir', type=Path)             # if DAgger
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -373,11 +322,11 @@ if __name__ == '__main__':
 
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
-        'conditional' if parsed.conditional else 'direct', 'dagger' if parsed.dagger else 'bc',         # run-specific, high-level
+        'conditional' if parsed.conditional else 'direct', 'bc',         # run-specific, high-level
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
-        *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
+        #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.6'
+    ])) + '-v11.7'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -387,7 +336,6 @@ if __name__ == '__main__':
             'notes': 'rnn setup from ddppo paper',
             'max_epoch': parsed.max_epoch,
             'checkpoint_dir': checkpoint_dir,
-            'dagger': parsed.dagger,
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
@@ -409,11 +357,8 @@ if __name__ == '__main__':
                 'interpolate': parsed.interpolate,
                 'augmentation': parsed.augmentation,
 
-                'dagger': parsed.dagger,
                 'capacity': parsed.capacity,
                 'episodes_per_epoch': parsed.episodes_per_epoch,
-
-                'dagger_dataset_dir': parsed.dagger_dataset_dir
                 },
 
             'optimizer_args': {

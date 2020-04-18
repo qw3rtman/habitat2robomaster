@@ -110,15 +110,16 @@ class ConditionalStateEncoderImitation(nn.Module):
         self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
 
     def forward(self, x):
-        # S x B x ...
+        assert x[0].shape[0] == self.batch_size
+        # B x ...
         rgb, direction, prev_action, mask = x
         batch = {'rgb': rgb, 'pointgoal_with_gps_compass': direction}
 
-        _, actions, action_log_probs, self.hidden_states = self.actor_critic.act(
+        _, _, _, self.hidden_states = self.actor_critic.act(
             batch,
-            self.hidden_states.detach()[:,:rgb.shape[0]],
-            prev_action.unsqueeze(dim=1)[:rgb.shape[0]],
-            mask.unsqueeze(dim=1)[:rgb.shape[0]],
+            self.hidden_states.detach()[:,:self.batch_size],
+            prev_action.unsqueeze(dim=1)[:self.batch_size],
+            mask.unsqueeze(dim=1)[:self.batch_size],
             deterministic=False)
 
         return self.actor_critic.prev_distribution.logits
