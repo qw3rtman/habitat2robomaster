@@ -14,7 +14,7 @@ import yaml
 import pandas as pd
 import plotly.graph_objects as go
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from model import ConditionalStateEncoderImitation
 from habitat_dataset import get_dataset, HabitatDataset
@@ -24,8 +24,8 @@ all_success = []
 all_spl = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 100
-VIDEO_FREQ   = 20
+NUM_EPISODES = 25
+VIDEO_FREQ   = 5
 EPOCH_FREQ   = 5
 
 def _get_box(all_x):
@@ -103,6 +103,8 @@ def validate(net, env, data, config):
         mask = mask.to(config['device'])
 
         for t in range(rgb.shape[0]):
+            net.clean()
+
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
@@ -132,6 +134,11 @@ def validate(net, env, data, config):
             images = []
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
+                    frame = Image.fromarray(step['rgb'])
+                    draw = ImageDraw.Draw(frame)
+                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 20)
+                    draw.text((0, 0), '({: <3.2f}, {: <3.2f})'.format(*env.get_direction()), (0, 0, 0), font=font)
+
                     images.append(np.transpose(step['rgb'], (2, 0, 1)))
 
             env_metrics = env.env.get_metrics()
@@ -155,6 +162,9 @@ def validate(net, env, data, config):
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
                 metrics['spl_box'] = _get_box(all_spl)
+
+                metrics['dtg_mean'] = np.mean(distance_to_goal)
+                metrics['dfg_mean'] = np.mean(distance_from_goal)
 
                 metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
                 metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
@@ -216,6 +226,8 @@ def train(net, env, data, optim, config):
     net.train()
     env.mode = 'teacher'
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
+        net.clean()
+
         rgb = rgb.to(config['device'])
         action = action.to(config['device'])
         prev_action = prev_action.to(config['device'])
@@ -364,7 +376,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.3'
+    ])) + '-v11.5'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

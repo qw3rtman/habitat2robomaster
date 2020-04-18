@@ -136,6 +136,13 @@ class Rollout:
 
         return self.i > 10 and ((np.max(self.d_pos) == 0 and np.max(self.d_rot) == 0) or np.sqrt(dd_pos**2 + dd_rot**2) < jitter_threshold[self.proxy])
 
+    def get_direction(self):
+        source_position = self.state.position
+        rot = self.state.rotation.components
+        source_rotation = Quaternion(*rot[1:4], rot[0])
+        goal_position = self.env.current_episode.goals[0].position
+        return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
+
     def act_student(self):
         rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
         rgb = rgb.to(self.device)
@@ -143,11 +150,7 @@ class Rollout:
         if self.task == 'dontcrash':
             out = self.student((rgb,))
         elif self.task == 'pointgoal':
-            source_position = self.state.position
-            rot = self.state.rotation.components
-            source_rotation = Quaternion(*rot[1:4], rot[0])
-            goal_position = self.env.current_episode.goals[0].position
-            meta = HabitatDataset.get_direction(source_position, source_rotation, goal_position).unsqueeze(dim=0)
+            meta = self.get_direction().unsqueeze(dim=0)
             meta = meta.to(self.device)
 
             if self.rnn:
@@ -179,6 +182,7 @@ class Rollout:
     def rollout(self):
         self.clean()
         self.state = self.env.sim.get_agent_state()
+        self.student.clean()
 
         while not self.env.episode_over:
             action = self.get_action()

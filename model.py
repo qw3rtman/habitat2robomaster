@@ -17,7 +17,10 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_model(conditional=False, **resnet_kwargs):
+def get_model(conditional=False, rnn=False, **resnet_kwargs):
+    if rnn:
+        return ConditionalStateEncoderImitation(**resnet_kwargs)
+
     if conditional:
         return ConditionalImitation(**resnet_kwargs)
     
@@ -100,7 +103,11 @@ class ConditionalStateEncoderImitation(nn.Module):
         )
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, batch_size, 512).to(self.device)
+        self.batch_size = batch_size
+        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
+
+    def clean(self):
+        self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
 
     def forward(self, x):
         # S x B x ...
