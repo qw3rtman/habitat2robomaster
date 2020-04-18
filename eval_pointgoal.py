@@ -48,7 +48,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     model_path = parsed.models_root / parsed.model
-    if not parsed.epoch:
+    if parsed.epoch is None:
         model = [model.stem for model in model_path.glob('model_*.t7')][-1] + '.t7'
         model_path = model_path / model
     else:
@@ -80,7 +80,7 @@ if __name__ == '__main__':
                 frame = Image.fromarray(step['rgb'])
                 draw = ImageDraw.Draw(frame)
                 font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 20)
-                draw.text((0, 0), '({: <3.2f}, {: <3.2f})'.format(*env.get_direction()), (0, 0, 0), font=font)
+                draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction[0], distance), (0, 0, 0), font=font)
                 cv2.imshow('rgb', np.uint8(frame))
 
                 cv2.imshow('depth', step['depth'])

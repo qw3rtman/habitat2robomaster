@@ -136,10 +136,11 @@ def validate(net, env, data, config):
                 if ep % VIDEO_FREQ == 0:
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
-                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 20)
-                    draw.text((0, 0), '({: <3.2f}, {: <3.2f})'.format(*env.get_direction()), (0, 0, 0), font=font)
+                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
+                    direction = env.get_direction()
+                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), (0, 0, 0), font=font)
 
-                    images.append(np.transpose(step['rgb'], (2, 0, 1)))
+                    images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
             env_metrics = env.env.get_metrics()
             distance_to_goal[ep] = env_metrics['distance_to_goal']
@@ -171,7 +172,7 @@ def validate(net, env, data, config):
                 metrics['distance_from_goal_vs_success'] = _get_hist2d(distance_from_goal, success)
 
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
-                metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=30, format='mp4')
+                metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=20, format='mp4')
 
             wandb.log(
                     {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
@@ -376,7 +377,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         *((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.5'
+    ])) + '-v11.6'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

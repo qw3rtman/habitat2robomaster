@@ -132,7 +132,7 @@ class HabitatDataset(torch.utils.data.Dataset):
             self.actions = torch.LongTensor(self.measurements['action'])
 
         self.info = pd.read_csv(episode_dir / 'info.csv').iloc[0]
-        self.scene = self.info['scene']
+        #self.scene = self.info['scene']
         self.start_position = torch.Tensor(itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info))
         # NOTE: really a quaternion
         self.start_rotation = torch.Tensor(itemgetter('start_rot_i', 'start_rot_j', 'start_rot_k', 'start_rot_l')(self.info))
