@@ -35,7 +35,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         if dagger:
             return DynamicWrap(data, batch_size, 1000 if is_train else 100, num_workers, capacity=capacity)
         elif rnn:
-            return StaticWrap(EpisodeDataset(data), batch_size, 150 if is_train else 15, num_workers, collate_fn=collate_episodes)
+            return StaticWrap(EpisodeDataset(data), batch_size, 25 if is_train else 2, num_workers, collate_fn=collate_episodes)
         else:
             return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
@@ -64,6 +64,9 @@ def collate_episodes(episodes):
     meta_batch = pad_sequence(metas)
 
     mask = (action_batch != 0).float()
+    indices = torch.min(torch.argmax(mask, dim=0) + 1, torch.LongTensor([mask.shape[0] - 1]))
+    for episode, index in enumerate(indices):
+        mask[index.item(), episode] = 1.
 
     return rgb_batch, action_batch, prev_action_batch, meta_batch, mask
 
@@ -169,6 +172,7 @@ class HabitatDataset(torch.utils.data.Dataset):
             return rgb, action, self._get_direction(start)
         """
 
+        """
         if p < 0.15 and action == 1: # if we have a straight path, what if we had turned left?
             #print('rot')
             source_position = self.positions[start]
@@ -182,13 +186,14 @@ class HabitatDataset(torch.utils.data.Dataset):
             direction = HabitatDataset.get_direction(source_position, rotation * source_rotation, goal_position)
 
             return rgb, action, direction
+        """
 
-        if p < 0.35: # goal is k steps ahead, instead of end_position
+        if p < 0.30: # goal is k steps ahead, instead of end_position
             #print('truncate')
-            k = np.random.randint(1, 30)
+            k = np.random.randint(3, 25)
             return rgb, action, self._get_direction(start, start+k)
 
-        if p < 0.40: # stop if within 0.20
+        if p < 0.50: # stop if within 0.20
             x = np.random.random() * 0.20
             y = np.random.random() * np.sqrt(0.20**2 - x**2)
 

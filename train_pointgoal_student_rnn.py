@@ -105,24 +105,25 @@ def validate(net, env, data, config):
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
+        episode_loss = 0
         for t in range(rgb.shape[0]):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
+            episode_loss += loss.mean()
 
-            loss_mean = loss.mean()
-            losses.append(loss_mean.item())
+        losses.append(episode_loss.mean().item())
 
-            metrics = {
-                'loss': loss_mean.item(),
-                'images_per_second': rgb.shape[0] / (time.time() - tick)
-            }
+        metrics = {
+            'loss': episode_loss.mean().item(),
+            'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
+        }
 
-            tick = time.time()
+        wandb.log(
+                {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
+                step=wandb.run.summary['step'])
 
-            wandb.log(
-                    {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
-                    step=wandb.run.summary['step'])
+        tick = time.time()
 
     # rollout
     net.batch_size = 1
@@ -193,7 +194,11 @@ def train(net, env, data, optim, config):
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
+
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
+        # rgb.shape
+        # sequence, batch, ...
+
         net.clean()
 
         rgb = rgb.to(config['device'])
@@ -202,30 +207,32 @@ def train(net, env, data, optim, config):
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
+        episode_loss = 0
         for t in range(rgb.shape[0]):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
+            loss.backward()
 
-            loss_mean = loss.mean()
-            losses.append(loss_mean.item())
+            episode_loss += loss.mean()
 
-            loss_mean.backward()
             optim.step()
             optim.zero_grad()
 
-            wandb.run.summary['step'] += 1
+        losses.append(episode_loss.mean().item())
 
-            metrics = {
-                'loss': loss_mean.item(),
-                'images_per_second': rgb.shape[0] / (time.time() - tick)
-            }
+        wandb.run.summary['step'] += 1
 
-            wandb.log(
-                    {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
-                    step=wandb.run.summary['step'])
+        metrics = {
+            'loss': episode_loss.mean().item(),
+            'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
+        }
 
-            tick = time.time()
+        wandb.log(
+                {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
+                step=wandb.run.summary['step'])
+
+        tick = time.time()
 
     return np.mean(losses)
 
@@ -326,7 +333,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.7'
+    ])) + '-v11.11'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
