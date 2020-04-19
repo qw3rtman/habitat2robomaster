@@ -7,8 +7,8 @@ job = f"""python habitat_wrapper.py \\
     --task pointgoal \\
     --proxy depth \\
     --mode teacher \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d \\
-    --num_episodes 1250
+    --dataset_dir /scratch/cluster/nimit/data/habitat/pointgoal-depth-office \\
+    --num_episodes 1000
 """
 
 jobs.append(job)

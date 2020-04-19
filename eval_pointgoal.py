@@ -31,7 +31,7 @@ def get_env(model, rnn=False):
 
     teacher_args = get_model_args(model, 'teacher_args')
     env = Rollout(**teacher_args, student=net, split='val', mode='student', rnn=rnn)
-    #env.mode = 'teacher'
+    env.mode = 'teacher'
 
     return env
 
@@ -84,11 +84,13 @@ if __name__ == '__main__':
                 cv2.imshow('rgb', np.uint8(frame))
 
                 cv2.imshow('depth', step['depth'])
-                semantic_img = Image.new("P", (step['semantic'].shape[1], step['semantic'].shape[0]))
-                semantic_img.putpalette(d3_40_colors_rgb.flatten())
-                semantic_img.putdata((step['semantic'].flatten() % 40).astype(np.uint8))
-                semantic_img = semantic_img.convert("RGBA")
-                cv2.imshow('semantic', np.uint8(semantic_img))
+
+                if step['semantic'] != None:
+                    semantic_img = Image.new("P", (step['semantic'].shape[1], step['semantic'].shape[0]))
+                    semantic_img.putpalette(d3_40_colors_rgb.flatten())
+                    semantic_img.putdata((step['semantic'].flatten() % 40).astype(np.uint8))
+                    semantic_img = semantic_img.convert("RGBA")
+                    cv2.imshow('semantic', np.uint8(semantic_img))
                 if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
                     break
 

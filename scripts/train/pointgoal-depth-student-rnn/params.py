@@ -4,8 +4,8 @@ from pathlib import Path
 jobs = list()
 
 for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth-castle', 'castle')]:
-    for method in ['backprop', 'groupstep']:
-        for resnet_model in ['resnet50', 'se_resneXt50']: # NOTE: se_resneXt50 used for their RGB models
+    for method in ['backprop', 'tbptt']:
+        for resnet_model in ['resnet50']: #, 'se_resneXt50']: # NOTE: se_resneXt50 used for their RGB models
             for batch_size in [8, 16]:
                 for lr in [1e-3, 1e-4]:
                     for weight_decay in [5e-4, 5e-5]:

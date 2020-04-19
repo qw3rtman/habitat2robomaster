@@ -25,7 +25,7 @@ from gym.spaces import Box, Dict, Discrete
 
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 MODES = ['student', 'teacher', 'both']
-METRICS = ['success', 'spl']
+METRICS = ['success', 'spl', 'softspl']
 
 jitter_threshold = {
     'rgb': 1e-2,
@@ -182,7 +182,8 @@ class Rollout:
     def rollout(self):
         self.clean()
         self.state = self.env.sim.get_agent_state()
-        self.student.clean()
+        if self.student != None:
+            self.student.clean()
 
         while not self.env.episode_over:
             action = self.get_action()
@@ -201,7 +202,7 @@ class Rollout:
                 'depth': self.observations['depth'],
                 'compass_r': self.observations['pointgoal_with_gps_compass'][0],
                 'compass_t': self.observations['pointgoal_with_gps_compass'][1],
-                'semantic': self.observations['semantic'],
+                'semantic': self.observations['semantic'] if 'semantic' in self.observations else None,
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
             }
@@ -262,8 +263,9 @@ def save_episode(env, episode_dir):
         lwns = max(lwns, longest)
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
-        np.save(episode_dir / f'depth_{i:04}', step['depth'])
-        np.save(episode_dir / f'seg_{i:04}', step['semantic'])
+        #np.save(episode_dir / f'depth_{i:04}', step['depth'])
+        if 'semantic' in step:
+            np.save(episode_dir / f'seg_{i:04}', step['semantic'])
         if env.mode == 'both':
             action = step['action']['teacher']
         else:

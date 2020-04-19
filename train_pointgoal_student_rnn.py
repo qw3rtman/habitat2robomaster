@@ -132,7 +132,7 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         net.hidden_states.detach_()
         for t in range(start, end):
             alloc = torch.cuda.memory_allocated(0)
-            print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
+            #print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
@@ -438,7 +438,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v12.tEsT22'
+    ])) + '-v13.0'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
