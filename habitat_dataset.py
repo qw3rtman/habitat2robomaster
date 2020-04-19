@@ -33,11 +33,11 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         print('%s: %d' % (train_or_val, len(data)))
 
         if dagger:
-            return DynamicWrap(data, batch_size, 1000 if is_train else 100, num_workers, capacity=capacity)
+            return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
         elif rnn:
-            return StaticWrap(EpisodeDataset(data), batch_size, 50 if is_train else 5, num_workers, collate_fn=collate_episodes)
+            return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes) # samples == episodes
         else:
-            return StaticWrap(data, batch_size, 1000 if is_train else 100, num_workers)
+            return StaticWrap(data, batch_size, 100000 if is_train else 10000, num_workers)                                            # samples == # steps
 
     return make_dataset(True), make_dataset(False)
 

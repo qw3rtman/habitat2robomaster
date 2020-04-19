@@ -30,15 +30,16 @@ class StaticWrap(object):
             self.episodes = torch.utils.data.ConcatDataset(data)
             self.data = infinite_dataloader(self.episodes, batch_size, num_workers, collate_fn)
 
+        self.batch_size = batch_size
         self.samples = samples
         self.count = 0
 
     def __iter__(self):
-        for i in range(self.samples):
+        for _ in range(len(self)):
             yield next(self.data)
 
     def __len__(self):
-        return self.samples
+        return self.samples // self.batch_size
 
 
 class DynamicWrap(StaticWrap):
