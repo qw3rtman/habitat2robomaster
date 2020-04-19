@@ -22,6 +22,7 @@ from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
 all_success = []
 all_spl = []
+all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
 NUM_EPISODES = 50
@@ -127,12 +128,17 @@ def validate(net, env, data, config):
         tick = time.time()
 
     # rollout
+    # NOTE: slide back iterator to 1st episode so we always validate over same episodes
+    # castle: 50 val episodes
+    # office: 495 ...
+    env.env.episode_iterator._iterator = iter(env.env.episode_iterator.episodes)
     net.batch_size = 1
     if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
         distance_to_goal = np.zeros(NUM_EPISODES)
+        distance_from_goal = np.zeros(NUM_EPISODES)
+        d_ratio = np.zeros(NUM_EPISODES)
         success = np.zeros(NUM_EPISODES)
         spl = np.zeros(NUM_EPISODES)
-        distance_from_goal = np.zeros(NUM_EPISODES)
 
         for ep in range(NUM_EPISODES):
             images = []
@@ -150,10 +156,15 @@ def validate(net, env, data, config):
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
             env_metrics = env.env.get_metrics()
-            distance_to_goal[ep] = env_metrics['distance_to_goal']
+            start = np.array(env.env.current_episode.start_position)
+            goal = np.array(env.env.current_episode.goals[0].position)
+            curr = np.array(env.state.sensor_states['rgb'].position) # NOTE: these sensor states somehow match with start/end
+
+            distance_to_goal[ep] = np.linalg.norm(start[[0,2]]-goal[[0,2]]) #env_metrics['distance_to_goal']
+            distance_from_goal[ep] = np.linalg.norm(curr[[0,2]]-goal[[0,2]])
+            d_ratio[ep] = distance_to_goal[ep] / (distance_from_goal[ep] + 0.00001)
             success[ep] = env_metrics['success']
             spl[ep] = env_metrics['spl']
-            distance_from_goal[ep] = np.linalg.norm(env.env.current_episode.goals[0].position[:2] - env.state.position[:2])
 
             metrics = {}
             if ep == NUM_EPISODES - 1:
@@ -186,10 +197,15 @@ def validate(net, env, data, config):
                 metrics['dfg_median'] = np.median(distance_from_goal)
                 metrics['dfg'] = wandb.Histogram(distance_from_goal)
 
+                # how close are we to goal relative to the starting distance?
+                all_d_ratio.append(d_ratio)
+                d_ratio_mean = np.mean(d_ratio)
+                metrics['d_ratio_mean'] = d_ratio_mean
+                metrics['d_ratio_box'] = _get_box(all_d_ratio)
+
                 # difficulty of episodes has big impact on SPL/success, so normalize
-                metrics['spl_dtg'] = dtg_mean * spl_mean
-                metrics['success_dtg'] = dtg_mean * success_mean
-                metrics['d_ratio'] = dtg_mean / dfg_mean
+                metrics['spl_dtg_mean'] = dtg_mean * spl_mean
+                metrics['success_dtg_mean'] = dtg_mean * success_mean
 
                 metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
                 metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
@@ -231,8 +247,8 @@ def train(net, env, data, optim, config):
         start = int(max(rgb.shape[0] - sequence_length_capacity, 0))
         total = torch.cuda.get_device_properties(0).total_memory
         for t in range(start, rgb.shape[0]):
-            alloc = torch.cuda.memory_allocated(0)
-            print(f's={t}, alloc={alloc}, free={total-alloc}')
+            #alloc = torch.cuda.memory_allocated(0)
+            #print(f's={t}, alloc={alloc}, free={total-alloc}')
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
