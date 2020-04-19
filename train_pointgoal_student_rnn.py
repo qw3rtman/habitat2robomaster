@@ -227,7 +227,12 @@ def train(net, env, data, optim, config):
         mask = mask.to(config['device'])
 
         episode_loss = 0
-        for t in range(rgb.shape[0]):
+        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10 # NOTE: prevent out of memory; batch_size=8 can do 60, scales linearly
+        start = int(max(rgb.shape[0] - sequence_length_capacity, 0))
+        total = torch.cuda.get_device_properties(0).total_memory
+        for t in range(start, rgb.shape[0]):
+            alloc = torch.cuda.memory_allocated(0)
+            print(f's={t}, alloc={alloc}, free={total-alloc}')
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
@@ -352,7 +357,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v12'
+    ])) + '-v12.0'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
