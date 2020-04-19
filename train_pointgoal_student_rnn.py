@@ -232,6 +232,15 @@ def train(net, env, data, optim, config):
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
+    # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
+    #                              batch_size=4 can do 83 on 1080, scales linearly
+    total_memory = torch.cuda.get_device_properties(config['device']).total_memory
+    if total_memory > 9e9: # 1080 Ti (11718230016)
+        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
+    else: #                  1080    (8513978368)
+        sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
+    print(f'sequence length capacity: {sequence_length_capacity}')
+
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         # rgb.shape
         # sequence, batch, ...
@@ -244,21 +253,13 @@ def train(net, env, data, optim, config):
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
-        # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
-        #                              batch_size=4 can do 83 on 1080, scales linearly
-        total_memory = torch.cuda.get_device_properties(config['device']).total_memory
-        if total_memory > 9e9: # 1080 Ti (11718230016)
-            sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
-        else: #                  1080    (8513978368)
-            sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
-
         sequence_loss = 0
         max_sequence_length = rgb.shape[0]
         for start in range(0, max_sequence_length, sequence_length_capacity): # chunking
             chunk_loss = 0
 
             end = min(start+sequence_length_capacity, max_sequence_length)
-            for t in range(start, rgb.shape[0]):
+            for t in range(start, end):
                 #alloc = torch.cuda.memory_allocated(0)
                 #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
                 _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
@@ -270,7 +271,8 @@ def train(net, env, data, optim, config):
             optim.step()
             optim.zero_grad()
 
-            sequence_loss += chunk_loss.detach().item()
+            chunk_loss.detach_() # free memory
+            sequence_loss += chunk_loss.item()
 
         loss_mean = sequence_loss / max_sequence_length
         losses.append(loss_mean)
@@ -348,7 +350,7 @@ def main(config):
             wandb.run.summary['best_val_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
 
-        spl_mean = all_spl[-1].mean()
+        spl_mean = all_spl[-1].mean() if len(all_spl) > 0 else 0.0
         if spl_mean < wandb.run.summary.get('best_spl', np.inf):
             wandb.run.summary['best_spl'] = spl_mean
             wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
@@ -392,7 +394,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v12TEst'
+    ])) + '-v12.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
