@@ -24,8 +24,8 @@ all_success = []
 all_spl = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 25
-VIDEO_FREQ   = 5
+NUM_EPISODES = 50
+VIDEO_FREQ   = 10
 EPOCH_FREQ   = 5
 
 def _get_box(all_x):
@@ -110,12 +110,13 @@ def validate(net, env, data, config):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
-            episode_loss += loss.mean()
+            episode_loss += loss
 
-        losses.append(episode_loss.mean().item())
+        loss_mean = episode_loss.item() / rgb.shape[0]
+        losses.append(loss_mean)
 
         metrics = {
-            'loss': episode_loss.mean().item(),
+            'loss': loss_mean,
             'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
         }
 
@@ -143,7 +144,8 @@ def validate(net, env, data, config):
                     draw = ImageDraw.Draw(frame)
                     font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
                     direction = env.get_direction()
-                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), (0, 0, 0), font=font)
+                    draw.rectangle((0, 0, 255, 20), fill='black')
+                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
@@ -156,21 +158,38 @@ def validate(net, env, data, config):
             metrics = {}
             if ep == NUM_EPISODES - 1:
                 all_success.append(success)
-                metrics['success_mean'] = np.mean(success)
+                success_mean = np.mean(success)
+                metrics['success_mean'] = success_mean
                 metrics['success_std'] = np.std(success)
                 metrics['success_median'] = np.median(success)
                 metrics['success'] = wandb.Histogram(success)
                 metrics['success_box'] = _get_box(all_success)
 
                 all_spl.append(spl)
-                metrics['spl_mean'] = np.mean(spl)
+                spl_mean = np.mean(spl)
+                metrics['spl_mean'] = spl_mean
                 metrics['spl_std'] = np.std(spl)
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
                 metrics['spl_box'] = _get_box(all_spl)
+                if spl_mean < wandb.run.summary.get('best_spl', np.inf):
+                    wandb.run.summary['best_spl'] = spl_mean
+                    wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
 
-                metrics['dtg_mean'] = np.mean(distance_to_goal)
-                metrics['dfg_mean'] = np.mean(distance_from_goal)
+                dtg_mean = np.mean(distance_to_goal)
+                metrics['dtg_mean'] = dtg_mean
+                metrics['dtg_median'] = np.median(distance_to_goal)
+                metrics['dtg'] = wandb.Histogram(distance_to_goal)
+
+                dfg_mean = np.mean(distance_from_goal)
+                metrics['dfg_mean'] = dfg_mean
+                metrics['dfg_median'] = np.median(distance_from_goal)
+                metrics['dfg'] = wandb.Histogram(distance_from_goal)
+
+                # difficulty of episodes has big impact on SPL/success, so normalize
+                metrics['spl_dtg'] = dtg_mean * spl_mean
+                metrics['success_dtg'] = dtg_mean * success_mean
+                metrics['d_ratio'] = dtg_mean / dfg_mean
 
                 metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
                 metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
@@ -212,19 +231,19 @@ def train(net, env, data, optim, config):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
-            loss.backward()
+            episode_loss += loss
 
-            episode_loss += loss.mean()
+        episode_loss.backward()
+        optim.step()
+        optim.zero_grad()
 
-            optim.step()
-            optim.zero_grad()
-
-        losses.append(episode_loss.mean().item())
+        loss_mean = episode_loss.item() / rgb.shape[0]
+        losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
 
         metrics = {
-            'loss': episode_loss.mean().item(),
+            'loss': loss_mean,
             'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
         }
 
@@ -333,7 +352,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v11.11'
+    ])) + '-v12'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
