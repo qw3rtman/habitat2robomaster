@@ -90,6 +90,52 @@ def _get_hist2d(x, y):
     return fig
 
 
+def pass_batch(rgb, meta, prev_action, meta, mask, optim=None, config=config):
+    method = config['config']
+
+    rgb = rgb.to(config['device'])
+    action = action.to(config['device'])
+    prev_action = prev_action.to(config['device'])
+    meta = meta.to(config['device'])
+    mask = mask.to(config['device'])
+
+    max_sequence_length = rgb.shape[0]
+    if method == 'groupstep': # step a bunch of steps at once
+        # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
+        #                              batch_size=4 can do 83 on 1080, scales linearly
+        total_memory = torch.cuda.get_device_properties(config['device']).total_memory
+        if total_memory > 9e9: # 1080 Ti (11718230016)
+            sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
+        else: #                  1080    (8513978368)
+            sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
+        #print(f'sequence length capacity: {sequence_length_capacity}')
+    else:
+        sequence_length_capacity = 1 # step at every timestep; very low memory constraints
+
+    sequence_loss = 0
+    for start in range(0, max_sequence_length, sequence_length_capacity): # chunking
+        chunk_loss = 0
+
+        end = min(start+sequence_length_capacity, max_sequence_length)
+        for t in range(start, end):
+            #alloc = torch.cuda.memory_allocated(0)
+            #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
+            _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
+
+            loss = criterion(_action, action[t])
+            chunk_loss += loss
+
+        if optim:
+            chunk_loss.backward()
+            optim.step()
+            optim.zero_grad()
+
+        chunk_loss.detach_() # free memory
+        sequence_loss += chunk_loss.item()
+
+    return sequence_loss / max_sequence_length # loss mean
+
+
 def validate(net, env, data, config):
     net.eval()
     net.batch_size = config['data_args']['batch_size']
@@ -102,21 +148,7 @@ def validate(net, env, data, config):
     # static validation set
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         net.clean()
-
-        rgb = rgb.to(config['device'])
-        action = action.to(config['device'])
-        prev_action = prev_action.to(config['device'])
-        meta = meta.to(config['device'])
-        mask = mask.to(config['device'])
-
-        sequence_loss = 0
-        for t in range(rgb.shape[0]):
-            _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
-
-            loss = criterion(_action, action[t])
-            sequence_loss += loss
-
-        loss_mean = sequence_loss.item() / rgb.shape[0]
+        loss_mean = pass_batch(rgb, action, prev_action, meta, mask, optim=None, config=config)
         losses.append(loss_mean)
 
         metrics = {
@@ -256,49 +288,13 @@ def train(net, env, data, optim, config):
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
-    # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
-    #                              batch_size=4 can do 83 on 1080, scales linearly
-    total_memory = torch.cuda.get_device_properties(config['device']).total_memory
-    if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
-    else: #                  1080    (8513978368)
-        sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
-    print(f'sequence length capacity: {sequence_length_capacity}')
 
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         # rgb.shape
         # sequence, batch, ...
 
         net.clean()
-
-        rgb = rgb.to(config['device'])
-        action = action.to(config['device'])
-        prev_action = prev_action.to(config['device'])
-        meta = meta.to(config['device'])
-        mask = mask.to(config['device'])
-
-        sequence_loss = 0
-        max_sequence_length = rgb.shape[0]
-        for start in range(0, max_sequence_length, sequence_length_capacity): # chunking
-            chunk_loss = 0
-
-            end = min(start+sequence_length_capacity, max_sequence_length)
-            for t in range(start, end):
-                #alloc = torch.cuda.memory_allocated(0)
-                #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
-                _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
-
-                loss = criterion(_action, action[t])
-                chunk_loss += loss
-
-            chunk_loss.backward()
-            optim.step()
-            optim.zero_grad()
-
-            chunk_loss.detach_() # free memory
-            sequence_loss += chunk_loss.item()
-
-        loss_mean = sequence_loss / max_sequence_length
+        loss_mean = pass_batch(rgb, action, prev_action, meta, mask, optim=optim, config=config)
         losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
@@ -405,16 +401,15 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--conditional', action='store_true')
+    parser.add_argument('--method', type=str, choice=['backprop', 'groupstep', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--scene', type=str, required=True)
     parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--interpolate', action='store_true')
+    parser.add_argument('--reduced', action='store_true')
     parser.add_argument('--augmentation', action='store_true')
-    parser.add_argument('--capacity', type=int, default=1000)          # if DAgger
-    parser.add_argument('--episodes_per_epoch', type=int, default=100) # if DAgger
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -424,11 +419,10 @@ if __name__ == '__main__':
 
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
-        'conditional' if parsed.conditional else 'direct', 'bc',         # run-specific, high-level
-        'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
-        #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
-        parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v12.1'
+        'bc', parsed.method,                                                                                  # training paradigm
+        parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
+        parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
+    ])) + '-v12.2'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -447,7 +441,8 @@ if __name__ == '__main__':
                 },
 
             'student_args': {
-                'resnet_model': parsed.resnet_model
+                'resnet_model': parsed.resnet_model,
+                'method': parsed.method
                 },
 
             'data_args': {
@@ -456,11 +451,8 @@ if __name__ == '__main__':
                 'batch_size': parsed.batch_size,
                 'rnn': True,
 
-                'interpolate': parsed.interpolate,
-                'augmentation': parsed.augmentation,
-
-                'capacity': parsed.capacity,
-                'episodes_per_epoch': parsed.episodes_per_epoch,
+                'reduced': parsed.reduced,
+                'augmentation': parsed.augmentation
                 },
 
             'optimizer_args': {
