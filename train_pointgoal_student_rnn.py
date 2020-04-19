@@ -186,9 +186,6 @@ def validate(net, env, data, config):
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
                 metrics['spl_box'] = _get_box(all_spl)
-                if spl_mean < wandb.run.summary.get('best_spl', np.inf):
-                    wandb.run.summary['best_spl'] = spl_mean
-                    wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
 
                 dtg_mean = np.mean(distance_to_goal)
                 metrics['dtg_mean'] = dtg_mean
@@ -338,6 +335,11 @@ def main(config):
         if loss_val < wandb.run.summary.get('best_val_loss', np.inf):
             wandb.run.summary['best_val_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
+
+        spl_mean = all_spl[-1].mean()
+        if spl_mean < wandb.run.summary.get('best_spl', np.inf):
+            wandb.run.summary['best_spl'] = spl_mean
+            wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
 
         if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
