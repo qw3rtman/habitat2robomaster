@@ -22,6 +22,8 @@ from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
 all_success = []
 all_spl = []
+all_soft_spl = []
+all_no_success_spl = []
 all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
@@ -140,6 +142,8 @@ def validate(net, env, data, config):
         d_ratio = np.zeros(NUM_EPISODES)
         success = np.zeros(NUM_EPISODES)
         spl = np.zeros(NUM_EPISODES)
+        soft_spl = np.zeros(NUM_EPISODES)
+        no_success_spl = np.zeros(NUM_EPISODES)
 
         for ep in range(NUM_EPISODES):
             images = []
@@ -166,6 +170,8 @@ def validate(net, env, data, config):
             d_ratio[ep] = distance_to_goal[ep] / (distance_from_goal[ep] + 0.00001)
             success[ep] = env_metrics['success']
             spl[ep] = env_metrics['spl']
+            soft_spl[ep] = env_metrics['softspl']
+            no_success_spl[ep] = env_metrics['no_success_spl']
 
             metrics = {}
             if ep == NUM_EPISODES - 1:
@@ -186,6 +192,22 @@ def validate(net, env, data, config):
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
                 metrics['spl_box'] = _get_box(all_spl)
+
+                all_soft_spl.append(soft_spl)
+                soft_spl_mean = np.mean(soft_spl)
+                metrics['soft_spl_mean'] = soft_spl_mean
+                metrics['soft_spl_std'] = np.std(soft_spl)
+                metrics['soft_spl_median'] = np.median(soft_spl)
+                metrics['soft_spl'] = wandb.Histogram(soft_spl)
+                metrics['soft_spl_box'] = _get_box(all_soft_spl)
+
+                all_no_success_spl.append(no_success_spl)
+                no_success_spl_mean = np.mean(no_success_spl)
+                metrics['no_success_spl_mean'] = no_success_spl_mean
+                metrics['no_success_spl_std'] = np.std(no_success_spl)
+                metrics['no_success_spl_median'] = np.median(no_success_spl)
+                metrics['no_success_spl'] = wandb.Histogram(no_success_spl)
+                metrics['no_success_spl_box'] = _get_box(all_no_success_spl)
 
                 dtg_mean = np.mean(distance_to_goal)
                 metrics['dtg_mean'] = dtg_mean
@@ -211,6 +233,8 @@ def validate(net, env, data, config):
 
                 metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
                 metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
+                metrics['distance_to_goal_vs_soft_spl'] = _get_hist2d(distance_to_goal, soft_spl)
+                metrics['distance_to_goal_vs_no_success_spl'] = _get_hist2d(distance_to_goal, no_success_spl)
                 metrics['distance_from_goal_vs_success'] = _get_hist2d(distance_from_goal, success)
 
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
@@ -354,6 +378,16 @@ def main(config):
         if spl_mean < wandb.run.summary.get('best_spl', np.inf):
             wandb.run.summary['best_spl'] = spl_mean
             wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
+
+        soft_spl_mean = all_soft_spl[-1].mean() if len(all_soft_spl) > 0 else 0.0
+        if soft_spl_mean < wandb.run.summary.get('best_soft_spl', np.inf):
+            wandb.run.summary['best_soft_spl'] = soft_spl_mean
+            wandb.run.summary['best_soft_spl_epoch'] = wandb.run.summary['epoch']
+
+        no_success_spl_mean = all_no_success_spl[-1].mean() if len(all_no_success_spl) > 0 else 0.0
+        if no_success_spl_mean < wandb.run.summary.get('best_no_success_spl', np.inf):
+            wandb.run.summary['best_no_success_spl'] = no_success_spl_mean
+            wandb.run.summary['best_no_success_spl_epoch'] = wandb.run.summary['epoch']
 
         if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
