@@ -90,8 +90,8 @@ def _get_hist2d(x, y):
     return fig
 
 
-def pass_batch(rgb, meta, prev_action, meta, mask, optim=None, config=config):
-    method = config['config']
+def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
+    method = config['student_args']['method']
 
     rgb = rgb.to(config['device'])
     action = action.to(config['device'])
@@ -148,7 +148,7 @@ def validate(net, env, data, config):
     # static validation set
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         net.clean()
-        loss_mean = pass_batch(rgb, action, prev_action, meta, mask, optim=None, config=config)
+        loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
 
         metrics = {
@@ -294,7 +294,7 @@ def train(net, env, data, optim, config):
         # sequence, batch, ...
 
         net.clean()
-        loss_mean = pass_batch(rgb, action, prev_action, meta, mask, optim=optim, config=config)
+        loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=optim)
         losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
@@ -401,7 +401,7 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--method', type=str, choice=['backprop', 'groupstep', 'tbptt', 'wwtbptt'], default='backprop', required=True)
+    parser.add_argument('--method', type=str, choices=['backprop', 'groupstep', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -422,7 +422,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v12.2'
+    ])) + '-v12.tEsT'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

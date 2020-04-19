@@ -76,7 +76,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, batch_size, resnet_model='resnet50'):
+    def __init__(self, batch_size, resnet_model='resnet50', **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         observation_spaces, action_spaces = spaces.Dict({
