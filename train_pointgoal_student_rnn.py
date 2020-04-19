@@ -90,7 +90,8 @@ def _get_hist2d(x, y):
     return fig
 
 
-k1 = 15 # frequency of TBPTT
+# NOTE: k1-k2 backprop, then k2 tbptt
+k1 = 30 # frequency of TBPTT
 k2 = 10 # length of TBPTT
 def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
@@ -108,9 +109,9 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
     if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = (550//config['data_args']['batch_size']) - 10
     else: #                  1080    (8513978368)
-        sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = (400//config['data_args']['batch_size']) - 10
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
     tbptt = method == 'tbptt'
@@ -130,8 +131,8 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         chunk_loss = 0
         net.hidden_states.detach_()
         for t in range(start, end):
-            #alloc = torch.cuda.memory_allocated(0)
-            #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
+            alloc = torch.cuda.memory_allocated(0)
+            print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
@@ -437,7 +438,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v12.tEsT'
+    ])) + '-v12.tEsT22'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
