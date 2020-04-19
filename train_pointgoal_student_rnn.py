@@ -107,14 +107,14 @@ def validate(net, env, data, config):
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
-        episode_loss = 0
+        sequence_loss = 0
         for t in range(rgb.shape[0]):
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
-            episode_loss += loss
+            sequence_loss += loss
 
-        loss_mean = episode_loss.item() / rgb.shape[0]
+        loss_mean = sequence_loss.item() / rgb.shape[0]
         losses.append(loss_mean)
 
         metrics = {
@@ -244,23 +244,35 @@ def train(net, env, data, optim, config):
         meta = meta.to(config['device'])
         mask = mask.to(config['device'])
 
-        episode_loss = 0
-        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10 # NOTE: prevent out of memory; batch_size=8 can do 60, scales linearly
-        start = int(max(rgb.shape[0] - sequence_length_capacity, 0))
-        total = torch.cuda.get_device_properties(0).total_memory
-        for t in range(start, rgb.shape[0]):
-            #alloc = torch.cuda.memory_allocated(0)
-            #print(f's={t}, alloc={alloc}, free={total-alloc}')
-            _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
+        # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
+        #                              batch_size=4 can do 83 on 1080, scales linearly
+        total_memory = torch.cuda.get_device_properties(config['device']).total_memory
+        if total_memory > 9e9: # 1080 Ti (11718230016)
+            sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
+        else: #                  1080    (8513978368)
+            sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
 
-            loss = criterion(_action, action[t])
-            episode_loss += loss
+        sequence_loss = 0
+        max_sequence_length = rgb.shape[0]
+        for start in range(0, max_sequence_length, sequence_length_capacity): # chunking
+            chunk_loss = 0
 
-        episode_loss.backward()
-        optim.step()
-        optim.zero_grad()
+            end = min(start+sequence_length_capacity, max_sequence_length)
+            for t in range(start, rgb.shape[0]):
+                #alloc = torch.cuda.memory_allocated(0)
+                #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
+                _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
-        loss_mean = episode_loss.item() / rgb.shape[0]
+                loss = criterion(_action, action[t])
+                chunk_loss += loss
+
+            chunk_loss.backward()
+            optim.step()
+            optim.zero_grad()
+
+            sequence_loss += chunk_loss.detach().item()
+
+        loss_mean = sequence_loss / max_sequence_length
         losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
@@ -380,7 +392,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v12.1'
+    ])) + '-v12TEst'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
