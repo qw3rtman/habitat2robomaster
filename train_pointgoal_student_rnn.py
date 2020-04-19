@@ -22,10 +22,11 @@ from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
 all_success = []
 all_spl = []
+all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 50
+NUM_EPISODES = 50 # NOTE: castle-specific
 VIDEO_FREQ   = 10
 EPOCH_FREQ   = 5
 
@@ -175,6 +176,8 @@ def validate(net, env, data, config):
                 metrics['success_median'] = np.median(success)
                 metrics['success'] = wandb.Histogram(success)
                 metrics['success_box'] = _get_box(all_success)
+                metrics['within_0.5'] = (distance_from_goal < 0.5).mean()
+                metrics['within_1.0'] = (distance_from_goal < 1.0).mean()
 
                 all_spl.append(spl)
                 spl_mean = np.mean(spl)
@@ -192,9 +195,11 @@ def validate(net, env, data, config):
                 metrics['dtg_median'] = np.median(distance_to_goal)
                 metrics['dtg'] = wandb.Histogram(distance_to_goal)
 
+                all_dfg.append(distance_from_goal)
                 dfg_mean = np.mean(distance_from_goal)
                 metrics['dfg_mean'] = dfg_mean
                 metrics['dfg_median'] = np.median(distance_from_goal)
+                metrics['dfg_box'] = _get_box(all_dfg)
                 metrics['dfg'] = wandb.Histogram(distance_from_goal)
 
                 # how close are we to goal relative to the starting distance?
@@ -373,7 +378,7 @@ if __name__ == '__main__':
         'aug' if parsed.augmentation else 'noaug', 'interpolate' if parsed.interpolate else 'original', # dataset
         #*((parsed.episodes_per_epoch, parsed.capacity) if parsed.dagger else ()),                       # DAgger
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                          # boring stuff
-    ])) + '-v12.0'
+    ])) + '-v12.1'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
