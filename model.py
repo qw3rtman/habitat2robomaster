@@ -117,7 +117,7 @@ class ConditionalStateEncoderImitation(nn.Module):
 
         _, _, _, self.hidden_states = self.actor_critic.act(
             batch,
-            self.hidden_states.detach()[:,:self.batch_size], # NOTE: no BPTT
+            self.hidden_states[:,:self.batch_size], # NOTE: no BPTT
             prev_action.unsqueeze(dim=1)[:self.batch_size],
             mask.unsqueeze(dim=1)[:self.batch_size],
             deterministic=False)

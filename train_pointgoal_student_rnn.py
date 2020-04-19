@@ -90,7 +90,11 @@ def _get_hist2d(x, y):
     return fig
 
 
+k1 = 15 # frequency of TBPTT
+k2 = 10 # length of TBPTT
 def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
+    net.clean() # start episode!
+
     method = config['student_args']['method']
 
     rgb = rgb.to(config['device'])
@@ -100,23 +104,31 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
     mask = mask.to(config['device'])
 
     max_sequence_length = rgb.shape[0]
-    if method == 'groupstep': # step a bunch of steps at once
-        # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
-        #                              batch_size=4 can do 83 on 1080, scales linearly
-        total_memory = torch.cuda.get_device_properties(config['device']).total_memory
-        if total_memory > 9e9: # 1080 Ti (11718230016)
-            sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
-        else: #                  1080    (8513978368)
-            sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
-        #print(f'sequence length capacity: {sequence_length_capacity}')
+    # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
+    #                              batch_size=4 can do 83 on 1080, scales linearly
+    total_memory = torch.cuda.get_device_properties(config['device']).total_memory
+    if total_memory > 9e9: # 1080 Ti (11718230016)
+        sequence_length_capacity = (480//config['data_args']['batch_size']) - 10
+    else: #                  1080    (8513978368)
+        sequence_length_capacity = (320//config['data_args']['batch_size']) - 10
+    #print(f'sequence length capacity: {sequence_length_capacity}')
+
+    tbptt = method == 'tbptt'
+    if method == 'tbptt':
+        truncate_indices = np.arange(0, rgb.shape[0])
+        indices = np.where((truncate_indices % k1 == k2)|(truncate_indices % k1 == 0))[0]
     else:
-        sequence_length_capacity = 1 # step at every timestep; very low memory constraints
+        indices = range(0, max_sequence_length, sequence_length_capacity) # chunking
 
     sequence_loss = 0
-    for start in range(0, max_sequence_length, sequence_length_capacity): # chunking
-        chunk_loss = 0
+    for i, start in enumerate(indices):
+        if method == 'tbptt':
+            end = indices[i+1] if i+1 < len(indices) else max_sequence_length
+        else:
+            end = min(start+sequence_length_capacity, max_sequence_length)
 
-        end = min(start+sequence_length_capacity, max_sequence_length)
+        chunk_loss = 0
+        net.hidden_states.detach_()
         for t in range(start, end):
             #alloc = torch.cuda.memory_allocated(0)
             #print(f's={t}, alloc={alloc}, free={total_memory-alloc}')
@@ -124,6 +136,8 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
 
             loss = criterion(_action, action[t])
             chunk_loss += loss
+            if not tbptt:
+                net.hidden_states.detach_()
 
         if optim:
             chunk_loss.backward()
@@ -132,6 +146,9 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
 
         chunk_loss.detach_() # free memory
         sequence_loss += chunk_loss.item()
+
+        if method == 'tbptt':
+            tbptt = not tbptt
 
     return sequence_loss / max_sequence_length # loss mean
 
@@ -147,7 +164,6 @@ def validate(net, env, data, config):
 
     # static validation set
     for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
-        net.clean()
         loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
 
@@ -293,7 +309,6 @@ def train(net, env, data, optim, config):
         # rgb.shape
         # sequence, batch, ...
 
-        net.clean()
         loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=optim)
         losses.append(loss_mean)
 
@@ -401,7 +416,7 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--method', type=str, choices=['backprop', 'groupstep', 'tbptt', 'wwtbptt'], default='backprop', required=True)
+    parser.add_argument('--method', type=str, choices=['backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
