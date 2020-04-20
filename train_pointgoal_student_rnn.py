@@ -28,8 +28,8 @@ all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 50 # NOTE: castle-specific
-VIDEO_FREQ   = 10
+NUM_EPISODES = 100 # NOTE: castle-specific
+VIDEO_FREQ   = 20
 EPOCH_FREQ   = 5
 
 def _get_box(all_x):
@@ -91,8 +91,8 @@ def _get_hist2d(x, y):
 
 
 # NOTE: k1-k2 backprop, then k2 tbptt
-k1 = 30 # frequency of TBPTT
-k2 = 10 # length of TBPTT
+k1 = 20 # frequency of TBPTT
+k2 = 5  # length of TBPTT
 def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
 
@@ -109,9 +109,9 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
     if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = (550//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = (500//config['data_args']['batch_size']) - 10
     else: #                  1080    (8513978368)
-        sequence_length_capacity = (400//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = (360//config['data_args']['batch_size']) - 10
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
     tbptt = method == 'tbptt'
@@ -125,6 +125,8 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
     for i, start in enumerate(indices):
         if method == 'tbptt':
             end = indices[i+1] if i+1 < len(indices) else max_sequence_length
+            if 0 in action[start:end]: # we really want to capture the closing move
+                tbptt = True
         else:
             end = min(start+sequence_length_capacity, max_sequence_length)
 
@@ -438,7 +440,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v13.0'
+    ])) + '-v13.01'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
