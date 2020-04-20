@@ -90,13 +90,14 @@ def _get_hist2d(x, y):
     return fig
 
 
-# NOTE: k1-k2 backprop, then k2 tbptt
-k1 = 20 # frequency of TBPTT
-k2 = 5  # length of TBPTT
 def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
 
     method = config['student_args']['method']
+    if method == 'tbptt':
+        # NOTE: k1-k2 backprop, then k2 tbptt
+        k1 = np.random.randint(10, 15) # frequency of TBPTT
+        k2 = np.random.randint(3, 8) # length of TBPTT
 
     rgb = rgb.to(config['device'])
     action = action.to(config['device'])
@@ -114,17 +115,24 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         sequence_length_capacity = (360//config['data_args']['batch_size']) - 10
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
-    tbptt = method == 'tbptt'
+    tbptt = method in ['tbptt', 'wwtbptt']
     if method == 'tbptt':
         truncate_indices = np.arange(0, rgb.shape[0])
         indices = np.where((truncate_indices % k1 == k2)|(truncate_indices % k1 == 0))[0]
+    elif method == 'wwtbptt': # https://arxiv.org/abs/1702.07600
+        window_start = np.random.randint(max_sequence_length * 0.8)
+        window_end = np.random.randint(window_start, min(window_start+20, max_sequence_length))
+        indices = [window_start, window_end]
+        with torch.no_grad(): # move to start of window
+            for t in range(window_start):
+                net((rgb[t], meta[t], prev_action[t], mask[t]))
     else:
         indices = range(0, max_sequence_length, sequence_length_capacity) # chunking
 
     sequence_loss = 0
     for i, start in enumerate(indices):
-        if method == 'tbptt':
-            end = indices[i+1] if i+1 < len(indices) else max_sequence_length
+        if method in ['tbptt', 'wwtbptt']:
+            end = indices[i+1] if i+1 < len(indices) else min(start+20, max_sequence_length)
             if 0 in action[start:end]: # we really want to capture the closing move
                 tbptt = True
         else:
@@ -133,7 +141,7 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         chunk_loss = 0
         net.hidden_states.detach_()
         for t in range(start, end):
-            alloc = torch.cuda.memory_allocated(0)
+            #alloc = torch.cuda.memory_allocated(0)
             #print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
             _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
 
@@ -142,15 +150,16 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
             if not tbptt:
                 net.hidden_states.detach_()
 
-        if optim:
+        if optim and hasattr(chunk_loss, 'backward') and chunk_loss != 0:
             chunk_loss.backward()
             optim.step()
             optim.zero_grad()
 
-        chunk_loss.detach_() # free memory
-        sequence_loss += chunk_loss.item()
+        if hasattr(chunk_loss, 'backward') and chunk_loss != 0:
+            chunk_loss.detach_() # free memory
+            sequence_loss += chunk_loss.item()
 
-        if method == 'tbptt':
+        if method not in ['tbptt', 'wwtbptt']:
             tbptt = not tbptt
 
     return sequence_loss / max_sequence_length # loss mean
@@ -197,11 +206,14 @@ def validate(net, env, data, config):
         no_success_spl = np.zeros(NUM_EPISODES)
 
         for ep in range(NUM_EPISODES):
+            values = []
             images = []
 
             net.clean()
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
+                    values.append(net.value.item())
+
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
                     font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
@@ -289,6 +301,11 @@ def validate(net, env, data, config):
                 metrics['distance_from_goal_vs_success'] = _get_hist2d(distance_from_goal, success)
 
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
+                fig = go.Figure(data=[go.Scatter(
+                    x=np.arange(1, len(values)+1),
+                    y=values
+                )])
+                metrics[f'values_{(ep//VIDEO_FREQ)+1}'] = fig
                 metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=20, format='mp4')
 
             wandb.log(
@@ -440,7 +457,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v13.01'
+    ])) + '-v13.overfit'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

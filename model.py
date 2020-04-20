@@ -104,6 +104,7 @@ class ConditionalStateEncoderImitation(nn.Module):
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.batch_size = batch_size
+
         self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
 
     def clean(self):
@@ -115,7 +116,7 @@ class ConditionalStateEncoderImitation(nn.Module):
         rgb, direction, prev_action, mask = x
         batch = {'rgb': rgb, 'pointgoal_with_gps_compass': direction}
 
-        _, _, _, self.hidden_states = self.actor_critic.act(
+        self.value, _, _, self.hidden_states = self.actor_critic.act(
             batch,
             self.hidden_states[:,:self.batch_size], # NOTE: no BPTT
             prev_action.unsqueeze(dim=1)[:self.batch_size],

@@ -54,7 +54,7 @@ if __name__ == '__main__':
     else:
         model_path = model_path / f'model_{parsed.epoch:03}.t7'
 
-    summary = defaultdict(float)
+    summary = defaultdict(list)
 
     task = get_model_args(model_path, 'teacher_args')['task']
     env = get_env(model_path, rnn=parsed.rnn)
@@ -94,10 +94,11 @@ if __name__ == '__main__':
                 if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
                     break
 
-        spl, success, dtg = itemgetter('spl', 'success', 'distance_to_goal')(env.env.get_metrics())
+        spl, soft_spl, success, dtg = itemgetter('spl', 'soft_spl', 'success', 'distance_to_goal')(env.env.get_metrics())
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
-                summary[m] += v
-        print(f'[!] Finish Episode {ep:06}, DTG: {dtg}, Success: {success}, SPL: {spl}, Direction: {direction}\n')
+                summary[m].append(v)
+        print(f'[!] Finish Episode {ep:06}, DTG: {dtg}, Success: {success}, SPL: {spl}, Soft SPL: {soft_spl}, Direction: {direction}\n')
 
-    print('Aggregate: {}'.format({k: v / parsed.num_episodes for k, v in summary.items() if k in METRICS}))
+    print('Mean: {}'.format({k: np.mean(v) for k, v in summary.items() if k in METRICS}))
+    print('Median: {}'.format({k: np.median(v) for k, v in summary.items() if k in METRICS}))
