@@ -221,7 +221,7 @@ class Rollout:
                 'rotation': self.state.rotation.components,
                 'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
                 'rgb': self.observations['rgb'],
-                'depth': self.observations['depth'],
+                'depth': self.observations['depth'] if 'depth' in self.observations else None,
                 'compass_r': self.observations['pointgoal_with_gps_compass'][0],
                 'compass_t': self.observations['pointgoal_with_gps_compass'][1],
                 'semantic': self.observations['semantic'] if 'semantic' in self.observations else None,

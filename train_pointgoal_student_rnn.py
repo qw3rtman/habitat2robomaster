@@ -230,8 +230,9 @@ def validate(net, env, data, config):
             if config['student_args']['method'] != 'ff':
                 net.clean()
 
-            distance_to_goal[ep] = env.env.get_metrics()['distance_to_goal'] #np.linalg.norm(start[[0,2]]-goal[[0,2]])
-            for step in get_episode(env):
+            for i, step in enumerate(get_episode(env)):
+                if i == 0:
+                    distance_to_goal[ep] = env.env.get_metrics()['distance_to_goal'] #np.linalg.norm(start[[0,2]]-goal[[0,2]])
                 if ep % VIDEO_FREQ == 0:
                     if config['student_args']['method'] != 'ff':
                         value.append(net.value.item())
@@ -441,6 +442,7 @@ def main(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--description', type=str, required=True)
     parser.add_argument('--max_epoch', type=int, default=100)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
@@ -471,7 +473,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v4.23.overfit'
+    ])) + f'-v{parsed.description}'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
