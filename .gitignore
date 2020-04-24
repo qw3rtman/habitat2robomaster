@@ -11,3 +11,5 @@ models/
 *.t7
 
 scripts/**/*.sh
+
+*.swp
