@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 
 from PIL import Image, ImageDraw, ImageFont
 
-from model import ConditionalStateEncoderImitation
+from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
 
@@ -28,8 +28,8 @@ all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 100 # NOTE: castle-specific
-VIDEO_FREQ   = 20
+NUM_EPISODES = 50 # NOTE: castle-specific
+VIDEO_FREQ   = 10
 EPOCH_FREQ   = 5
 
 def _get_box(all_x):
@@ -89,6 +89,20 @@ def _get_hist2d(x, y):
 
     return fig
 
+def pass_single(net, criterion, rgb, action, meta, config, optim=None):
+    rgb = rgb.to(config['device'])
+    action = action.to(config['device'])
+    meta = meta.to(config['device'])
+
+    _action = net((rgb, meta))
+    loss = criterion(_action, action)
+
+    if optim:
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
+    return loss.mean().item()
 
 def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
@@ -175,13 +189,18 @@ def validate(net, env, data, config):
     tick = time.time()
 
     # static validation set
-    for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
-        loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None)
+    for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
+        if config['student_args']['method'] == 'ff':
+            rgb, _, _, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=None)
+        else:
+            rgb, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
+            'images_per_second': np.prod(rgb.shape[:-2]) / (time.time() - tick)
         }
 
         wandb.log(
@@ -209,10 +228,12 @@ def validate(net, env, data, config):
             values = []
             images = []
 
-            net.clean()
+            if config['student_args']['method'] != 'ff':
+                net.clean()
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
-                    values.append(net.value.item())
+                    if config['student_args']['method'] != 'ff':
+                        values.append(net.value.item())
 
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
@@ -325,18 +346,23 @@ def train(net, env, data, optim, config):
     tick = time.time()
 
 
-    for i, (rgb, action, prev_action, meta, mask) in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
+    for i, x in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         # rgb.shape
         # sequence, batch, ...
 
-        loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=optim)
+        if config['student_args']['method'] == 'ff':
+            rgb, _, _, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=optim)
+        else:
+            rgb, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=optim)
         losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': (rgb.shape[0]*rgb.shape[1]) / (time.time() - tick)
+            'images_per_second': np.prod(rgb.shape[:-2]) / (time.time() - tick)
         }
 
         wandb.log(
@@ -363,11 +389,11 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = ConditionalStateEncoderImitation(config['data_args']['batch_size'], **config['student_args']).to(config['device'])
+    net = get_model(**config['student_args']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'])
 
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
-    env_val = Rollout(**config['teacher_args'], student=net, rnn=True, split='val')
+    env_val = Rollout(**config['teacher_args'], student=net, rnn=config['student_args']['rnn'], split='val')
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -436,7 +462,7 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--method', type=str, choices=['backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
+    parser.add_argument('--method', type=str, choices=['ff', 'backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -457,7 +483,7 @@ if __name__ == '__main__':
         'bc', parsed.method,                                                                                  # training paradigm
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
-    ])) + '-v13.overfit'
+    ])) + '-v4.23.overfit'
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -477,14 +503,17 @@ if __name__ == '__main__':
 
             'student_args': {
                 'resnet_model': parsed.resnet_model,
-                'method': parsed.method
+                'method': parsed.method,
+                'rnn': parsed.method != 'ff',
+                'conditional': True,
+                'batch_size': parsed.batch_size
                 },
 
             'data_args': {
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
-                'rnn': True,
+                'rnn': parsed.method != 'ff',
 
                 'reduced': parsed.reduced,
                 'augmentation': parsed.augmentation

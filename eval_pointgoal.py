@@ -30,7 +30,7 @@ def get_env(model, rnn=False):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    teacher_args['proxy'] = 'rgb'
+    #teacher_args['proxy'] = 'rgb'
     env = Rollout(**teacher_args, student=net, split='val', mode='student', rnn=rnn)
     env.mode = 'teacher'
 
