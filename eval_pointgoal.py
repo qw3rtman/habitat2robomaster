@@ -30,6 +30,7 @@ def get_env(model, rnn=False):
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
+    teacher_args['proxy'] = 'rgb'
     env = Rollout(**teacher_args, student=net, split='val', mode='student', rnn=rnn)
     env.mode = 'teacher'
 
@@ -55,12 +56,14 @@ if __name__ == '__main__':
         model_path = model_path / f'model_{parsed.epoch:03}.t7'
 
     summary = defaultdict(list)
+    dfgs = []
 
     task = get_model_args(model_path, 'teacher_args')['task']
     env = get_env(model_path, rnn=parsed.rnn)
     for ep in range(parsed.num_episodes):
         print(f'[!] Start Episode {ep:06}')
 
+        last_dfg = 0
         for i, step in enumerate(env.rollout()):
             source_position = env.state.position
             rot = env.state.rotation.components
@@ -69,6 +72,8 @@ if __name__ == '__main__':
             direction = HabitatDataset.get_direction(source_position, source_rotation, goal_position).unsqueeze(dim=0)
             distance = np.linalg.norm(direction)
             print(f' [*] Step {i: >3}, Direction: ({direction[0,0].item(): >6.2f}, {direction[0,1].item(): >6.2f})   {distance: >5.2f}', end='')
+
+            last_dfg = distance
 
             if step['is_stuck']:
                 print(' (stuck?)')
@@ -94,7 +99,8 @@ if __name__ == '__main__':
                 if cv2.waitKey(1 if parsed.auto else 0) == ord('x'):
                     break
 
-        spl, soft_spl, success, dtg = itemgetter('spl', 'soft_spl', 'success', 'distance_to_goal')(env.env.get_metrics())
+        dfgs.append(last_dfg)
+        spl, soft_spl, success, dtg = itemgetter('spl', 'softspl', 'success', 'distance_to_goal')(env.env.get_metrics())
         for m, v in env.env.get_metrics().items():
             if m in METRICS:
                 summary[m].append(v)
@@ -102,3 +108,7 @@ if __name__ == '__main__':
 
     print('Mean: {}'.format({k: np.mean(v) for k, v in summary.items() if k in METRICS}))
     print('Median: {}'.format({k: np.median(v) for k, v in summary.items() if k in METRICS}))
+    print('DFG mean: {}, DFG median: {}'.format(np.mean(dfgs), np.median(dfgs)))
+    lt5 = (np.array(dfgs) < 0.5).sum()
+    lt10 = (np.array(dfgs) < 1.0).sum()
+    print('<0.5: {}, <1.0: {}'.format(lt5, lt10))
