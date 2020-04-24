@@ -223,9 +223,10 @@ def validate(net, env, data, config):
         spl = np.zeros(NUM_EPISODES)
         soft_spl = np.zeros(NUM_EPISODES)
         no_success_spl = np.zeros(NUM_EPISODES)
+        avg_value = np.zeros(NUM_EPISODES)
 
         for ep in range(NUM_EPISODES):
-            values = []
+            value = []
             images = []
 
             if config['student_args']['method'] != 'ff':
@@ -233,7 +234,7 @@ def validate(net, env, data, config):
             for step in get_episode(env):
                 if ep % VIDEO_FREQ == 0:
                     if config['student_args']['method'] != 'ff':
-                        values.append(net.value.item())
+                        value.append(net.value.item())
 
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
@@ -256,6 +257,7 @@ def validate(net, env, data, config):
             spl[ep] = env_metrics['spl']
             soft_spl[ep] = env_metrics['softspl']
             no_success_spl[ep] = env_metrics['no_success_spl']
+            avg_value[ep] = np.mean(value)
 
             metrics = {}
             if ep == NUM_EPISODES - 1:
@@ -293,6 +295,8 @@ def validate(net, env, data, config):
                 metrics['no_success_spl'] = wandb.Histogram(no_success_spl)
                 metrics['no_success_spl_box'] = _get_box(all_no_success_spl)
 
+                metrics['value_mean'] = np.mean(avg_value)
+
                 dtg_mean = np.mean(distance_to_goal)
                 metrics['dtg_mean'] = dtg_mean
                 metrics['dtg_median'] = np.median(distance_to_goal)
@@ -323,8 +327,8 @@ def validate(net, env, data, config):
 
             if ep % VIDEO_FREQ == 0 and len(images) > 0:
                 fig = go.Figure(data=[go.Scatter(
-                    x=np.arange(1, len(values)+1),
-                    y=values
+                    x=np.arange(1, len(value)+1),
+                    y=value
                 )])
                 metrics[f'values_{(ep//VIDEO_FREQ)+1}'] = fig
                 metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=20, format='mp4')
