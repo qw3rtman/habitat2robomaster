@@ -27,11 +27,13 @@ all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
-NUM_EPISODES = 50 # NOTE: castle-specific
-VIDEO_FREQ   = 10
-EPOCH_FREQ   = 5
+# NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ
+rollout_freq = {
+    'castle': [50, 10, 5],
+    'office': [100, 20, 5]
+}
 
-def _get_box(all_x):
+def _get_box(all_x, EPOCH_FREQ):
     fig = go.Figure(data=[go.Box(y=data,
         boxpoints='all',
         boxmean=True,
@@ -179,6 +181,8 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
 
 
 def validate(net, env, data, config):
+    NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ = rollout_freq[config['data_args']['scene']]
+
     net.eval()
     net.batch_size = config['data_args']['batch_size']
     env.mode = 'student'
@@ -266,7 +270,7 @@ def validate(net, env, data, config):
                 metrics['success_std'] = np.std(success)
                 metrics['success_median'] = np.median(success)
                 metrics['success'] = wandb.Histogram(success)
-                metrics['success_box'] = _get_box(all_success)
+                metrics['success_box'] = _get_box(all_success, EPOCH_FREQ)
                 metrics['within_0.5'] = (distance_from_goal < 0.5).mean()
                 metrics['within_1.0'] = (distance_from_goal < 1.0).mean()
 
@@ -276,7 +280,7 @@ def validate(net, env, data, config):
                 metrics['spl_std'] = np.std(spl)
                 metrics['spl_median'] = np.median(spl)
                 metrics['spl'] = wandb.Histogram(spl)
-                metrics['spl_box'] = _get_box(all_spl)
+                metrics['spl_box'] = _get_box(all_spl, EPOCH_FREQ)
 
                 all_soft_spl.append(soft_spl)
                 soft_spl_mean = np.mean(soft_spl)
@@ -284,7 +288,7 @@ def validate(net, env, data, config):
                 metrics['soft_spl_std'] = np.std(soft_spl)
                 metrics['soft_spl_median'] = np.median(soft_spl)
                 metrics['soft_spl'] = wandb.Histogram(soft_spl)
-                metrics['soft_spl_box'] = _get_box(all_soft_spl)
+                metrics['soft_spl_box'] = _get_box(all_soft_spl, EPOCH_FREQ)
 
                 metrics['value_mean'] = np.mean(avg_value)
 
@@ -297,14 +301,14 @@ def validate(net, env, data, config):
                 dfg_mean = np.mean(distance_from_goal)
                 metrics['dfg_mean'] = dfg_mean
                 metrics['dfg_median'] = np.median(distance_from_goal)
-                metrics['dfg_box'] = _get_box(all_dfg)
+                metrics['dfg_box'] = _get_box(all_dfg, EPOCH_FREQ)
                 metrics['dfg'] = wandb.Histogram(distance_from_goal)
 
                 # how close are we to goal relative to the starting distance?
                 all_d_ratio.append(d_ratio)
                 d_ratio_mean = np.mean(d_ratio)
                 metrics['d_ratio_mean'] = d_ratio_mean
-                metrics['d_ratio_box'] = _get_box(all_d_ratio)
+                metrics['d_ratio_box'] = _get_box(all_d_ratio, EPOCH_FREQ)
 
                 # difficulty of episodes has big impact on SPL/success, so normalize
                 metrics['spl_dtg_mean'] = dtg_mean * spl_mean
