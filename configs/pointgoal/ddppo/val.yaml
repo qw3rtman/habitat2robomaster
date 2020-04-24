@@ -2,6 +2,8 @@ NUM_PROCESSES: 8
 ENVIRONMENT:
   MAX_EPISODE_STEPS: 500 
   NUM_PROCESSES: 8
+  ITERATOR_OPTIONS:
+    SHUFFLE: False
 SIMULATOR:
   AGENT_0:
     SENSORS: ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
@@ -28,16 +30,17 @@ TASK:
     DIMENSIONALITY: 2
   GOAL_SENSOR_UUID: pointgoal_with_gps_compass
 
-  MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL', 'COLLISIONS']
+  MEASUREMENTS: ['DISTANCE_TO_GOAL', 'SUCCESS', 'SPL', 'COLLISIONS', 'NO_SUCCESS_SPL', 'SOFT_SPL']
   SUCCESS:
     SUCCESS_DISTANCE: 0.2 
 DATASET:
   TYPE: PointNav-v1
-  SPLIT: val
-  #DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
-  #SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
-  DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
-  SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
+  SPLIT: val # 50 episodes, consistent
+  CONTENT_SCENES: ["*"] #B6ByNegPMKs"] #EDJbREhghzL"]
+  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
+  SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
+  #DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
+  #SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
 ENV_NAME: "NavRLEnv"
 
 EVAL:

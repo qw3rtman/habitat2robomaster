@@ -34,7 +34,7 @@ def get_default_config():
 
 
 class PPOAgent(Agent):
-    def __init__(self, config: Config, ddppo=False):
+    def __init__(self, config: Config, resnet_model='resnet50', ddppo=True):
         self.goal_sensor_uuid = config.GOAL_SENSOR_UUID
         spaces = {
             self.goal_sensor_uuid: Box(
@@ -83,12 +83,12 @@ class PPOAgent(Agent):
                 hidden_size=self.hidden_size,
                 rnn_type='LSTM',#self.config.RL.DDPPO.rnn_type,
                 num_recurrent_layers=2,#self.config.RL.DDPPO.num_recurrent_layers,
-                backbone='resnet50',#self.config.RL.DDPPO.backbone,
+                backbone=resnet_model,#self.config.RL.DDPPO.backbone,
                 goal_sensor_uuid=self.goal_sensor_uuid,
-                normalize_visual_inputs=False,#"rgb"
+                normalize_visual_inputs=('rgb' in config.INPUT_TYPE)
                 #in self.envs.observation_spaces[0].spaces,
             )
-        else:
+        else: # PPO
             self.actor_critic = PointNavBaselinePolicy(
                 observation_space=observation_spaces,
                 action_space=action_spaces,

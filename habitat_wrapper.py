@@ -34,33 +34,40 @@ jitter_threshold = {
 
 MODELS = {
     'depth': {
-        'ppo': '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
-        #'ppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ppo/depth.pth',
-        'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth',
-        #'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-2plus-se-resneXt101-lstm1024.pth'
+        'ppo':   ('/scratch/cluster/nimit/models/habitat/ppo/depth.pth', ''),
+        'ddppo': ('/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth', 'resnet50'),
     },
     'rgb': {
-        'ppo': '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
-        'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-2plus-mp3d-train-val-test-se-resneXt50-rgb.pth',
+        'ppo':   ('/scratch/cluster/nimit/models/habitat/ppo/rgb.pth', ''),
+        'ddppo': ('/scratch/cluster/nimit/models/habitat/ddppo/gibson-2plus-mp3d-train-val-test-se-resneXt50-rgb.pth', 'se_resneXt50'),
     }
 }
 
 CONFIGS = {
-    'ppo': {
-        'train': 'configs/pointgoal/ppo/train.yaml',
-        'val': 'configs/pointgoal/ppo/val.yaml'
-    },
-    'ddppo': {
-        'train': 'configs/pointgoal/ddppo/train.yaml',
-        'val': 'configs/pointgoal/ddppo/val.yaml'
-    }
+    'ppo':        'configs/pointgoal/ppo/val.yaml',
+    'ddppo':      'configs/pointgoal/ddppo/val.yaml'
+}
+
+DATAPATH = {
+    'castle':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz',
+    'office':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
+    'mp3d':       '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
+}
+
+SPLIT = {
+    'castle':    {'train': 'train', 'val': 'val'},
+    'office':    {'train': 'B6ByNegPMKs_train', 'val': 'B6ByNegPMKs_val'},
+    'mp3d':      {'train': 'train', 'val': 'val'}
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, split='train', gpu_id=0, **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR'], **kwargs):
         assert task in TASKS
         assert proxy in MODELS.keys()
         assert mode in MODES
+        assert dataset in DATAPATH.keys()
+        assert dataset in SPLIT.keys()
+        assert split in SPLIT[dataset]
         if mode in ['student', 'both']:
             assert student is not None
 
@@ -70,29 +77,42 @@ class Rollout:
         self.student = student
         self.rnn = rnn
 
-        c = Config()
+        ####### agent config ##################################################
+        agent_config = Config()
+        agent_config.INPUT_TYPE               = proxy
+        agent_config.RESOLUTION               = 256
+        agent_config.HIDDEN_SIZE              = 512
+        agent_config.GOAL_SENSOR_UUID         = 'pointgoal_with_gps_compass'
 
-        c.RESOLUTION       = 256
-        c.HIDDEN_SIZE      = 512
-        c.RANDOM_SEED      = 7
+        agent_config.MODEL_PATH, resnet_model = MODELS[agent_config.INPUT_TYPE]['ddppo']
+        agent_config.RANDOM_SEED              = 7
 
-        c.PTH_GPU_ID       = 0
-        c.SIMULATOR_GPU_ID = gpu_id
-        c.TORCH_GPU_ID     = gpu_id
-        c.NUM_PROCESSES    = 4
+        agent_config.PTH_GPU_ID               = gpu_id
+        agent_config.SIMULATOR_GPU_ID         = gpu_id
+        agent_config.TORCH_GPU_ID             = gpu_id
+        agent_config.NUM_PROCESSES            = 8
 
-        c.INPUT_TYPE       = proxy
-        c.MODEL_PATH       = MODELS[c.INPUT_TYPE]['ddppo']
-        c.GOAL_SENSOR_UUID = 'pointgoal_with_gps_compass'
+        agent_config.freeze()
+        self.agent = PPOAgent(agent_config, ddppo=True, resnet_model=resnet_model)
+        #######################################################################
 
-        c.freeze()
+        ####### environment config ############################################
+        env_config = get_config(CONFIGS['ddppo'])
+        env_config.defrost()
+
+        env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle
+        env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
+        env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
+        env_config.DATASET.CONTENT_SCENES               = scenes
+        env_config.DATASET.DATA_PATH                    = DATAPATH[dataset]
+        env_config.DATASET.SCENES_DIR                   = '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
+
+        env_config.freeze()
+        self.env = Env(config=env_config) # scene, etc.
+        #######################################################################
 
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-        env_config = get_config(CONFIGS['ddppo'][split])
-        self.env = Env(config=env_config)
-        self.agent = PPOAgent(c, ddppo=True)
 
     def clean(self):
         self.agent.reset()
@@ -308,6 +328,9 @@ if __name__ == '__main__':
     parser.add_argument('--task', choices=TASKS, required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--mode', choices=MODES, required=True)
+    parser.add_argument('--shuffle', action='store_true')
+    parser.add_argument('--scene', choices=DATAPATH.keys(), required=True)
+    parser.add_argument('--split', required=True)
     parsed = parser.parse_args()
 
     summary = defaultdict(float)
@@ -315,7 +338,7 @@ if __name__ == '__main__':
     if (parsed.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(parsed.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(parsed.task, parsed.proxy, parsed.mode)
+    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split)
     for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
         episode_dir = parsed.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)

@@ -3,7 +3,7 @@ from pathlib import Path
 
 jobs = list()
 
-for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth-castle-overfit', 'castle')]:
+for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth-office-val', 'office')]:
     for method in ['backprop', 'tbptt']:
         for resnet_model in ['resnet50']: #, 'se_resneXt50']: # NOTE: se_resneXt50 used for their RGB models
             for batch_size in [8, 16]:
