@@ -37,20 +37,22 @@ MODELS = {
         'ppo': '/scratch/cluster/nimit/models/habitat/ppo/depth.pth',
         #'ppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ppo/depth.pth',
         'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth',
-        #'ddppo': '/Users/nimit/Documents/robomaster/habitat/models/v2/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth'
+        #'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-2plus-se-resneXt101-lstm1024.pth'
+    },
+    'rgb': {
+        'ppo': '/scratch/cluster/nimit/models/habitat/ppo/rgb.pth',
+        'ddppo':   '/scratch/cluster/nimit/models/habitat/ddppo/gibson-2plus-mp3d-train-val-test-se-resneXt50-rgb.pth',
     }
 }
 
 CONFIGS = {
-    'depth': {
-        'ppo': {
-            'train': 'configs/pointgoal/ppo/train.yaml',
-            'val': 'configs/pointgoal/ppo/val.yaml'
-        },
-        'ddppo': {
-            'train': 'configs/pointgoal/ddppo/train.yaml',
-            'val': 'configs/pointgoal/ddppo/val.yaml'
-        }
+    'ppo': {
+        'train': 'configs/pointgoal/ppo/train.yaml',
+        'val': 'configs/pointgoal/ppo/val.yaml'
+    },
+    'ddppo': {
+        'train': 'configs/pointgoal/ddppo/train.yaml',
+        'val': 'configs/pointgoal/ddppo/val.yaml'
     }
 }
 
@@ -80,7 +82,7 @@ class Rollout:
         c.NUM_PROCESSES    = 4
 
         c.INPUT_TYPE       = proxy
-        c.MODEL_PATH       = MODELS[c.INPUT_TYPE]['ddppo']
+        c.MODEL_PATH       = MODELS[c.INPUT_TYPE]['ppo']
         c.GOAL_SENSOR_UUID = 'pointgoal_with_gps_compass'
 
         c.freeze()
@@ -88,9 +90,9 @@ class Rollout:
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        env_config = get_config(CONFIGS[c.INPUT_TYPE]['ddppo'][split])
+        env_config = get_config(CONFIGS['ppo'][split])
         self.env = Env(config=env_config)
-        self.agent = PPOAgent(c, ddppo=True)
+        self.agent = PPOAgent(c, ddppo=False)#True)
 
     def clean(self):
         self.agent.reset()
