@@ -430,12 +430,12 @@ def main(config):
             wandb.run.summary['best_epoch'] = epoch
 
         spl_mean = all_spl[-1].mean() if len(all_spl) > 0 else 0.0
-        if spl_mean < wandb.run.summary.get('best_spl', np.inf):
+        if spl_mean > wandb.run.summary.get('best_spl', np.inf):
             wandb.run.summary['best_spl'] = spl_mean
             wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
 
         soft_spl_mean = all_soft_spl[-1].mean() if len(all_soft_spl) > 0 else 0.0
-        if soft_spl_mean < wandb.run.summary.get('best_soft_spl', np.inf):
+        if soft_spl_mean > wandb.run.summary.get('best_soft_spl', np.inf):
             wandb.run.summary['best_soft_spl'] = soft_spl_mean
             wandb.run.summary['best_soft_spl_epoch'] = wandb.run.summary['epoch']
 

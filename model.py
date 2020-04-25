@@ -105,6 +105,7 @@ class ConditionalStateEncoderImitation(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.batch_size = batch_size
 
+        self.value = torch.Tensor([0.0])
         self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
 
     def clean(self):
