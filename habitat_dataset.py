@@ -43,7 +43,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
 
 def collate_episodes(episodes):
-    rgbs, segs, actions, prev_actions, metas = [], [], [], []
+    rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
         rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
         segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.uint8))
