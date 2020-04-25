@@ -243,10 +243,9 @@ def validate(net, env, data, config):
             for i, step in enumerate(get_episode(env)):
                 if i == 0:
                     distance_to_goal[ep] = env.env.get_metrics()['distance_to_goal'] #np.linalg.norm(start[[0,2]]-goal[[0,2]])
+                if config['student_args']['method'] != 'feedforward':
+                    value.append(net.value.item())
                 if ep % VIDEO_FREQ == 0:
-                    if config['student_args']['method'] != 'feedforward':
-                        value.append(net.value.item())
-
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
                     font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
@@ -296,7 +295,8 @@ def validate(net, env, data, config):
                 metrics['soft_spl'] = wandb.Histogram(soft_spl)
                 metrics['soft_spl_box'] = _get_box(all_soft_spl, EPOCH_FREQ)
 
-                metrics['value_mean'] = np.mean(avg_value)
+                if config['student_args']['method'] != 'feedforward':
+                    metrics['value_mean'] = np.mean(avg_value)
 
                 dtg_mean = np.mean(distance_to_goal)
                 metrics['dtg_mean'] = dtg_mean
@@ -439,12 +439,12 @@ def main(config):
             wandb.run.summary['best_epoch'] = epoch
 
         spl_mean = all_spl[-1].mean() if len(all_spl) > 0 else 0.0
-        if spl_mean > wandb.run.summary.get('best_spl', np.inf):
+        if spl_mean > wandb.run.summary.get('best_spl', -np.inf):
             wandb.run.summary['best_spl'] = spl_mean
             wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
 
         soft_spl_mean = all_soft_spl[-1].mean() if len(all_soft_spl) > 0 else 0.0
-        if soft_spl_mean > wandb.run.summary.get('best_soft_spl', np.inf):
+        if soft_spl_mean > wandb.run.summary.get('best_soft_spl', -np.inf):
             wandb.run.summary['best_soft_spl'] = soft_spl_mean
             wandb.run.summary['best_soft_spl_epoch'] = wandb.run.summary['epoch']
 
@@ -461,7 +461,7 @@ if __name__ == '__main__':
 
     # Teacher args.
     parser.add_argument('--teacher_task', choices=TASKS, required=True)
-    parser.add_argument('--teacher_proxy', choices=MODELS.keys(), required=True)
+    parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
 
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
@@ -502,7 +502,7 @@ if __name__ == '__main__':
 
             'teacher_args': {
                 'task': parsed.teacher_task,
-                'proxy': parsed.teacher_proxy
+                'proxy': parsed.proxy
                 },
 
             'student_args': {

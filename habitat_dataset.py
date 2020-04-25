@@ -46,7 +46,7 @@ def collate_episodes(episodes):
     rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
         rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
-        segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.uint8))
+        segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.float32))
 
         actions.append(episode.actions)
         prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
@@ -231,7 +231,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         rgb  = torch.Tensor(np.uint8(rgb))
 
         # rgb, mapview, segmentation, action, meta, episode, prev_action
-        return rgb, None, seg, action, meta, self.episode_idx, prev_action
+        return rgb, 0, seg, action, meta, self.episode_idx, prev_action
 
     def __lt__(self, other):
         return self.loss < other.loss

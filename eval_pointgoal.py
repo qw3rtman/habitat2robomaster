@@ -21,16 +21,16 @@ import yaml
 def get_model_args(model, key):
     return yaml.load((model.parent / 'config.yaml').read_text())[key]['value']
 
-def get_env(model, scene, rnn=False):
+def get_env(model, proxy, scene, rnn=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     student_args = get_model_args(model, 'student_args')
     data_args = get_model_args(model, 'data_args')
-    net = get_model(**student_args, rnn=rnn, batch_size=data_args['batch_size']).to(device)
+    net = get_model(**student_args, target=proxy, rnn=rnn, batch_size=data_args['batch_size']).to(device)
     print(device)
     net.load_state_dict(torch.load(model, map_location=device))
 
     teacher_args = get_model_args(model, 'teacher_args')
-    teacher_args['proxy'] = 'rgb'
+    teacher_args['proxy'] = proxy
     env = Rollout(**teacher_args, student=net, split='val', mode='student', rnn=rnn, shuffle=False, dataset=scene, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'])
     env.mode = 'teacher'
 
@@ -42,6 +42,7 @@ if __name__ == '__main__':
     parser.add_argument('--models_root', '-r', type=Path, required=True)
     parser.add_argument('--model', '-m', type=str, required=True)
     parser.add_argument('--epoch', '-e', type=int)
+    parser.add_argument('--proxy', required=True)
     parser.add_argument('--scene', required=True)
     parser.add_argument('--rnn', action='store_true')
     parser.add_argument('--auto', '-a', action='store_true')
@@ -60,7 +61,7 @@ if __name__ == '__main__':
     dfgs = []
 
     task = get_model_args(model_path, 'teacher_args')['task']
-    env = get_env(model_path, parsed.scene, rnn=parsed.rnn)
+    env = get_env(model_path, parsed.proxy, parsed.scene, rnn=parsed.rnn)
     for ep in range(parsed.num_episodes):
         print(f'[!] Start Episode {ep:06}')
 

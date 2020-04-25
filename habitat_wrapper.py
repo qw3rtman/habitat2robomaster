@@ -30,7 +30,8 @@ MODALITIES = ['rgb', 'depth', 'semantic']
 
 jitter_threshold = {
     'rgb': 1e-2,
-    'depth': 7.5e-2
+    'depth': 7.5e-2,
+    'semantic': 7.5e-2
 }
 
 MODELS = {
@@ -64,7 +65,7 @@ SPLIT = {
 class Rollout:
     def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR'], **kwargs):
         assert task in TASKS
-        assert proxy in MODELS.keys()
+        assert proxy in MODALITIES
         assert mode in MODES
         assert dataset in DATAPATH.keys()
         assert dataset in SPLIT.keys()
@@ -85,9 +86,11 @@ class Rollout:
         agent_config.HIDDEN_SIZE              = 512
         agent_config.GOAL_SENSOR_UUID         = 'pointgoal_with_gps_compass'
 
-        agent_config.MODEL_PATH, resnet_model = MODELS[agent_config.INPUT_TYPE]['ddppo']
-        agent_config.RANDOM_SEED              = 7
+        agent_config.MODEL_PATH, resnet_model = '', 'resnet50'
+        if mode == 'teacher':
+            agent_config.MODEL_PATH, resnet_model = MODELS[agent_config.INPUT_TYPE]['ddppo']
 
+        agent_config.RANDOM_SEED              = 7
         agent_config.PTH_GPU_ID               = gpu_id
         agent_config.SIMULATOR_GPU_ID         = gpu_id
         agent_config.TORCH_GPU_ID             = gpu_id
@@ -168,7 +171,7 @@ class Rollout:
 
     def act_student(self):
         if self.proxy == 'semantic':
-            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])==2).unsqueeze(dim=0) # NOTE: just floor
+            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])==2).unsqueeze(dim=-1).unsqueeze(dim=0) # NOTE: just floor
         else:
             proxy = torch.Tensor(np.uint8(self.observations[self.proxy])).unsqueeze(dim=0)
         proxy = proxy.to(self.device)
