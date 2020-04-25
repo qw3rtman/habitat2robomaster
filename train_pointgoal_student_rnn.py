@@ -90,12 +90,15 @@ def _get_hist2d(x, y):
 
     return fig
 
-def pass_single(net, criterion, rgb, action, meta, config, optim=None):
-    rgb = rgb.to(config['device'])
+def pass_single(net, criterion, rgb, seg, action, meta, config, optim=None):
     action = action.to(config['device'])
     meta = meta.to(config['device'])
+    if config['student_args']['target'] == 'semantic':
+        target = seg.to(config['device'])
+    else:
+        target = rgb.to(config['device'])
 
-    _action = net((rgb, meta))
+    _action = net((target, meta))
     loss = criterion(_action, action)
 
     if optim:
@@ -105,7 +108,7 @@ def pass_single(net, criterion, rgb, action, meta, config, optim=None):
 
     return loss.mean().item()
 
-def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None):
+def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
 
     method = config['student_args']['method']
@@ -114,13 +117,16 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         k1 = np.random.randint(10, 15) # frequency of TBPTT
         k2 = np.random.randint(3, 8) # length of TBPTT
 
-    rgb = rgb.to(config['device'])
+    if config['student_args']['target'] == 'semantic':
+        target = seg.to(config['device'])
+    else:
+        target = rgb.to(config['device'])
     action = action.to(config['device'])
     prev_action = prev_action.to(config['device'])
     meta = meta.to(config['device'])
     mask = mask.to(config['device'])
 
-    max_sequence_length = rgb.shape[0]
+    max_sequence_length = target.shape[0]
     # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
@@ -132,7 +138,7 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
 
     tbptt = method in ['tbptt', 'wwtbptt']
     if method == 'tbptt':
-        truncate_indices = np.arange(0, rgb.shape[0])
+        truncate_indices = np.arange(0, target.shape[0])
         indices = np.where((truncate_indices % k1 == k2)|(truncate_indices % k1 == 0))[0]
     elif method == 'wwtbptt': # https://arxiv.org/abs/1702.07600
         window_start = np.random.randint(max_sequence_length * 0.8)
@@ -140,7 +146,7 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         indices = [window_start, window_end]
         with torch.no_grad(): # move to start of window
             for t in range(window_start):
-                net((rgb[t], meta[t], prev_action[t], mask[t]))
+                net((target[t], meta[t], prev_action[t], mask[t]))
     else:
         indices = range(0, max_sequence_length, sequence_length_capacity) # chunking
 
@@ -158,7 +164,7 @@ def pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, 
         for t in range(start, end):
             #alloc = torch.cuda.memory_allocated(0)
             #print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
-            _action = net((rgb[t], meta[t], prev_action[t], mask[t]))
+            _action = net((target[t], meta[t], prev_action[t], mask[t]))
 
             loss = criterion(_action, action[t])
             chunk_loss += loss
@@ -194,11 +200,11 @@ def validate(net, env, data, config):
     # static validation set
     for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
-            rgb, _, _, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=None)
+            rgb, _, seg, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, rgb, seg, action, meta, config, optim=None)
         else:
-            rgb, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=None)
+            rgb, seg, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
 
         metrics = {
@@ -349,11 +355,11 @@ def train(net, env, data, optim, config):
         # sequence, batch, ...
 
         if config['student_args']['method'] == 'feedforward':
-            rgb, _, _, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=optim)
+            rgb, _, seg, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, rgb, seg, action, meta, config, optim=optim)
         else:
-            rgb, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, rgb, action, prev_action, meta, mask, config, optim=optim)
+            rgb, seg, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=optim)
         losses.append(loss_mean)
 
         wandb.run.summary['step'] += 1
