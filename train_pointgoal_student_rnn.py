@@ -253,6 +253,11 @@ def validate(net, env, data, config):
                     draw.rectangle((0, 0, 255, 20), fill='black')
                     draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
+                    if config['student_args']['target'] == 'semantic': # overlay road
+                        road = Image.new('RGB',frame.size,(116,56,117))
+                        mask = Image.fromarray(255*np.uint8(step['semantic']==2))
+                        frame = Image.composite(road,frame,mask).convert('RGB')
+
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
             env_metrics = env.env.get_metrics()

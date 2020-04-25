@@ -5,8 +5,8 @@ from datetime import datetime
 jobs = list()
 unique = datetime.now().strftime("%-m.%d")
 
-for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth-castle-val', 'castle'), ('/scratch/cluster/nimit/data/habitat/pointgoal-depth-office-val', 'office')]:
-    for method, batch_sizes in [('feedforward', [64, 128])]: #, ('backprop', [8, 16]), ('tbptt', [8, 16])]:
+for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth-castle', 'castle'), ('/scratch/cluster/nimit/data/habitat/pointgoal-depth-office', 'office')]:
+    for method, batch_sizes in [('feedforward', [64, 128]), ('backprop', [8, 16]), ('tbptt', [8, 16])]:
         for resnet_model in ['resnet50']: #, 'se_resneXt50']: # NOTE: se_resneXt50 used for their RGB models
             for batch_size in batch_sizes:
                 for lr in [1e-3, 1e-4]:
