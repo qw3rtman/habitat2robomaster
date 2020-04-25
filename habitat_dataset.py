@@ -215,6 +215,8 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
+        seg    = np.load(self.segs[idx])
+
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
 
@@ -226,7 +228,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         rgb  = torch.Tensor(np.uint8(rgb))
 
         # rgb, mapview, segmentation, action, meta, episode, prev_action
-        return rgb, 0, 0, action, meta, self.episode_idx, prev_action
+        return rgb, None, seg, action, meta, self.episode_idx, prev_action
 
     def __lt__(self, other):
         return self.loss < other.loss

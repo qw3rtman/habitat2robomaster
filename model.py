@@ -38,10 +38,12 @@ class DirectImitation(nn.Module):
         if self.target == 'semantic':
             self.target = 'depth'
 
-        observation_spaces = spaces.Dict({
-            'depth': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32),
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
-        })
+        if self.target == 'depth':
+            target_space = spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32)
+        elif self.target == 'rgb':
+            target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+
+        observation_spaces = spaces.Dict({self.target: target_space})
 
         self.visual_encoder = ResNetEncoder(
             observation_spaces,
@@ -96,9 +98,13 @@ class ConditionalStateEncoderImitation(nn.Module):
         if self.target == 'semantic':
             self.target = 'depth'
 
+        if self.target == 'depth':
+            target_space = spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32)
+        elif self.target == 'rgb':
+            target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+
         observation_spaces, action_spaces = spaces.Dict({
-            'depth': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32),
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8),
+            self.target: target_space,
             'pointgoal_with_gps_compass': spaces.Box( 
                 low=np.finfo(np.float32).min,
                 high=np.finfo(np.float32).max,
