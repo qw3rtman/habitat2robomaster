@@ -193,7 +193,7 @@ def validate(net, env, data, config):
 
     # static validation set
     for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
-        if config['student_args']['method'] == 'ff':
+        if config['student_args']['method'] == 'feedforward':
             rgb, _, _, action, meta, _, _ = x
             loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=None)
         else:
@@ -203,7 +203,7 @@ def validate(net, env, data, config):
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': np.prod(rgb.shape[:-2]) / (time.time() - tick)
+            'images_per_second': np.prod(rgb.shape[:-3]) / (time.time() - tick)
         }
 
         wandb.log(
@@ -231,14 +231,14 @@ def validate(net, env, data, config):
             value = []
             images = []
 
-            if config['student_args']['method'] != 'ff':
+            if config['student_args']['method'] != 'feedforward':
                 net.clean()
 
             for i, step in enumerate(get_episode(env)):
                 if i == 0:
                     distance_to_goal[ep] = env.env.get_metrics()['distance_to_goal'] #np.linalg.norm(start[[0,2]]-goal[[0,2]])
                 if ep % VIDEO_FREQ == 0:
-                    if config['student_args']['method'] != 'ff':
+                    if config['student_args']['method'] != 'feedforward':
                         value.append(net.value.item())
 
                     frame = Image.fromarray(step['rgb'])
@@ -348,7 +348,7 @@ def train(net, env, data, optim, config):
         # rgb.shape
         # sequence, batch, ...
 
-        if config['student_args']['method'] == 'ff':
+        if config['student_args']['method'] == 'feedforward':
             rgb, _, _, action, meta, _, _ = x
             loss_mean = pass_single(net, criterion, rgb, action, meta, config, optim=optim)
         else:
@@ -360,7 +360,7 @@ def train(net, env, data, optim, config):
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': np.prod(rgb.shape[:-2]) / (time.time() - tick)
+            'images_per_second': np.prod(rgb.shape[:-3]) / (time.time() - tick)
         }
 
         wandb.log(
@@ -456,7 +456,7 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--method', type=str, choices=['ff', 'backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
+    parser.add_argument('--method', type=str, choices=['feedforward', 'backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -498,7 +498,7 @@ if __name__ == '__main__':
             'student_args': {
                 'resnet_model': parsed.resnet_model,
                 'method': parsed.method,
-                'rnn': parsed.method != 'ff',
+                'rnn': parsed.method != 'feedforward',
                 'conditional': True,
                 'batch_size': parsed.batch_size
                 },
@@ -508,7 +508,7 @@ if __name__ == '__main__':
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
-                'rnn': parsed.method != 'ff',
+                'rnn': parsed.method != 'feedforward',
 
                 'reduced': parsed.reduced,
                 'augmentation': parsed.augmentation
