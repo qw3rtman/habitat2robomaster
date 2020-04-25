@@ -26,6 +26,7 @@ from gym.spaces import Box, Dict, Discrete
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 MODES = ['student', 'teacher', 'both']
 METRICS = ['success', 'spl', 'softspl']
+MODALITIES = ['rgb', 'depth', 'semantic']
 
 jitter_threshold = {
     'rgb': 1e-2,
@@ -338,7 +339,7 @@ if __name__ == '__main__':
     if (parsed.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(parsed.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split)
+    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.scene)
     for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
         episode_dir = parsed.dataset_dir / f'{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)

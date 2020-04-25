@@ -12,6 +12,8 @@ from habitat_baselines.common.utils import CategoricalNet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
 from habitat_baselines.common.utils import batch_obs
 
+from habitat_wrapper import MODALITIES
+
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
@@ -28,15 +30,25 @@ def get_model(conditional=False, rnn=False, **resnet_kwargs):
 
 
 class DirectImitation(nn.Module):
-    def __init__(self, resnet_model='resnet18', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4):
+    def __init__(self, target, resnet_model='resnet50', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4):
         super().__init__()
-        
+
+        self.target = target
+        assert self.target in MODALITIES
+        if self.target == 'semantic':
+            self.target = 'depth'
+
+        observation_spaces = spaces.Dict({
+            'depth': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32),
+            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+        })
+
         self.visual_encoder = ResNetEncoder(
-            spaces.Dict({'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype='uint8')}),
+            observation_spaces,
             baseplanes=baseplanes,
             ngroups=ngroups,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=True
+            normalize_visual_inputs=(self.target=='rgb')
         )
         
         self.visual_fc = nn.Sequential(
@@ -51,14 +63,14 @@ class DirectImitation(nn.Module):
         #nn.init.constant_(self.action_fc.bias, 0)
 
     def forward(self, x):
-        rgb = x[0]
-        rgb_vec = self.visual_encoder({'rgb': rgb})
+        target = x[0]
+        visual_embedding = self.visual_encoder({self.target: target})
 
-        return self.action_fc(self.visual_fc(rgb_vec))
+        return self.action_fc(self.visual_fc(visual_embedding))
 
 class ConditionalImitation(DirectImitation):
-    def __init__(self, resnet_model='resnet18', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=2, **kwargs):
-        super().__init__(resnet_model, baseplanes, ngroups, hidden_size, dim_actions)
+    def __init__(self, target, resnet_model='resnet50', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=2, **kwargs):
+        super().__init__(target, resnet_model, baseplanes, ngroups, hidden_size, dim_actions)
 
         meta_embedding_size = hidden_size // 16
         self.meta_fc = nn.Sequential(
@@ -69,18 +81,23 @@ class ConditionalImitation(DirectImitation):
         self.action_fc = nn.Linear(hidden_size + meta_embedding_size, dim_actions)
 
     def forward(self, x):
-        rgb, meta = x
-        rgb_vec = self.visual_encoder({'rgb': rgb})
+        target, meta = x
+        visual_embedding = self.visual_encoder({self.target: target})
 
-        return self.action_fc(torch.cat([self.visual_fc(rgb_vec), self.meta_fc(meta)], dim=1))
+        return self.action_fc(torch.cat([self.visual_fc(visual_embedding), self.meta_fc(meta)], dim=1))
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, batch_size, resnet_model='resnet50', **kwargs):
+    def __init__(self, batch_size, target, resnet_model='resnet50', **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
+        self.target = target
+        assert self.target in MODALITIES
+        if self.target == 'semantic':
+            self.target = 'depth'
+
         observation_spaces, action_spaces = spaces.Dict({
-            # 'depth': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32),
+            'depth': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32),
             'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8),
             'pointgoal_with_gps_compass': spaces.Box( 
                 low=np.finfo(np.float32).min,
@@ -114,8 +131,8 @@ class ConditionalStateEncoderImitation(nn.Module):
     def forward(self, x):
         assert x[0].shape[0] == self.batch_size
         # B x ...
-        rgb, direction, prev_action, mask = x
-        batch = {'rgb': rgb, 'pointgoal_with_gps_compass': direction}
+        target, direction, prev_action, mask = x
+        batch = {self.target: target, 'pointgoal_with_gps_compass': direction}
 
         self.value, _, _, self.hidden_states = self.actor_critic.act(
             batch,
