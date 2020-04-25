@@ -391,7 +391,10 @@ def main(config):
     data_train, data_val = get_dataset(**config['data_args'])
 
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
-    env_val = Rollout(**config['teacher_args'], student=net, rnn=config['student_args']['rnn'], shuffle=False, split='val', dataset=config['data_args']['scene'], sensors=['RGB_SENSOR'])
+    sensors = ['RGB_SENSOR']
+    if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
+        sensors.append('SEMANTIC_SENSOR')
+    env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=False, split='val', dataset=config['data_args']['scene'], sensors=sensors)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(

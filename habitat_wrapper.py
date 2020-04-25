@@ -167,19 +167,22 @@ class Rollout:
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
 
     def act_student(self):
-        rgb = torch.Tensor(np.uint8(self.observations['rgb'])).unsqueeze(dim=0)
-        rgb = rgb.to(self.device)
+        if self.proxy == 'semantic':
+            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])==2).unsqueeze(dim=0) # NOTE: just floor
+        else:
+            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])).unsqueeze(dim=0)
+        proxy = proxy.to(self.device)
 
         if self.task == 'dontcrash':
-            out = self.student((rgb,))
+            out = self.student((proxy,))
         elif self.task == 'pointgoal':
             meta = self.get_direction().unsqueeze(dim=0)
             meta = meta.to(self.device)
 
             if self.rnn:
-                out = self.student((rgb, meta, self.prev_action, self.mask))
+                out = self.student((proxy, meta, self.prev_action, self.mask))
             else:
-                out = self.student((rgb, meta))
+                out = self.student((proxy, meta))
 
         self.prev_action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device)
         return {'action': self.prev_action.item()}, out # action, logits
