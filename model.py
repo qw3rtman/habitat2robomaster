@@ -19,14 +19,14 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_model(conditional=False, rnn=False, **resnet_kwargs):
+def get_model(target, conditional=False, rnn=False, **resnet_kwargs):
     if rnn:
-        return ConditionalStateEncoderImitation(**resnet_kwargs)
+        return ConditionalStateEncoderImitation(target, **resnet_kwargs)
 
     if conditional:
-        return ConditionalImitation(**resnet_kwargs)
+        return ConditionalImitation(target, **resnet_kwargs)
     
-    return DirectImitation(**resnet_kwargs)
+    return DirectImitation(target, **resnet_kwargs)
 
 
 class DirectImitation(nn.Module):
@@ -88,7 +88,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, batch_size, target, resnet_model='resnet50', **kwargs):
+    def __init__(self, target, batch_size, resnet_model='resnet50', **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         self.target = target

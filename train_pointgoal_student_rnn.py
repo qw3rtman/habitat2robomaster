@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
-from habitat_wrapper import TASKS, MODELS, Rollout, get_episode, save_episode
+from habitat_wrapper import TASKS, MODELS, MODALITIES, Rollout, get_episode, save_episode
 
 all_success = []
 all_spl = []
@@ -455,6 +455,7 @@ if __name__ == '__main__':
     parser.add_argument('--teacher_proxy', choices=MODELS.keys(), required=True)
 
     # Student args.
+    parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
     parser.add_argument('--method', type=str, choices=['feedforward', 'backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
 
@@ -496,6 +497,7 @@ if __name__ == '__main__':
                 },
 
             'student_args': {
+                'target': parsed.target,
                 'resnet_model': parsed.resnet_model,
                 'method': parsed.method,
                 'rnn': parsed.method != 'feedforward',
