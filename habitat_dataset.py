@@ -43,9 +43,10 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
 
 def collate_episodes(episodes):
-    rgbs, actions, prev_actions, metas = [], [], [], []
+    rgbs, segs, actions, prev_actions, metas = [], [], [], []
     for i, episode in enumerate(episodes):
         rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
+        segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.uint8))
 
         actions.append(episode.actions)
         prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
@@ -54,11 +55,13 @@ def collate_episodes(episodes):
         metas.append(torch.zeros((len(episode), 2), dtype=torch.float))
 
         for t, step in enumerate(episode):
-            rgb, _, _, action, meta, _, prev_action = step
+            rgb, _, seg, action, meta, _, prev_action = step
             rgbs[i][t] = rgb
+            segs[i][t] = seg
             metas[i][t] = meta
 
     rgb_batch = pad_sequence(rgbs)
+    seg_batch = pad_sequence(segs)
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
     meta_batch = pad_sequence(metas)
@@ -68,7 +71,7 @@ def collate_episodes(episodes):
     for episode, index in enumerate(indices):
         mask[index.item(), episode] = 1.
 
-    return rgb_batch, action_batch, prev_action_batch, meta_batch, mask
+    return rgb_batch, seg_batch, action_batch, prev_action_batch, meta_batch, mask
 
 
 class EpisodeDataset(torch.utils.data.Dataset):
@@ -215,7 +218,7 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         rgb    = Image.open(self.imgs[idx])
-        seg    = np.load(self.segs[idx])
+        seg    = torch.Tensor(np.load(self.segs[idx])==2).unsqueeze(dim=-1)
 
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
