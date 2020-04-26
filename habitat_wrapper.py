@@ -229,7 +229,7 @@ class Rollout:
                 'position': self.state.position,
                 'rotation': self.state.rotation.components,
                 'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
-                'rgb': self.observations['rgb'],
+                'rgb': self.observations['rgb'] if 'rgb' in self.observations else None,
                 'depth': self.observations['depth'] if 'depth' in self.observations else None,
                 'semantic': np.uint8(self.observations['semantic']) if 'semantic' in self.observations else None,
                 'compass_r': self.observations['pointgoal_with_gps_compass'][0],
@@ -293,7 +293,8 @@ def save_episode(env, episode_dir):
 
         lwns = max(lwns, longest)
 
-        Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
+        if 'rgb' in step and step['rgb'] is not None:
+            Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'depth_{i:04}', step['depth'])
         if 'semantic' in step and step['semantic'] is not None:
             np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
@@ -343,6 +344,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', choices=DATAPATH.keys(), required=True)
     parser.add_argument('--scene', default='*')
     parser.add_argument('--split', required=True)
+    parser.add_argument('--rgb', action='store_true')
     parser.add_argument('--semantic', action='store_true')
     parser.add_argument('--num_frames', type=int)
     parsed = parser.parse_args()
@@ -352,9 +354,12 @@ if __name__ == '__main__':
     if (parsed.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(parsed.dataset_dir / 'summary.csv').iloc[0]
 
-    sensors = ['RGB_SENSOR', 'DEPTH_SENSOR']
+    sensors = ['DEPTH_SENSOR']
+    if parsed.rgb:
+        sensors.append('RGB_SENSOR')
     if parsed.semantic:
-        sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+        sensors.append('SEMANTIC_SENSOR')
+
     env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.dataset, scenes=[parsed.scene], sensors=sensors)
 
     ep = int(summary['ep'])
