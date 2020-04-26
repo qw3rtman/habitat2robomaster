@@ -56,8 +56,10 @@ def collate_episodes(episodes):
 
         for t, step in enumerate(episode):
             rgb, _, seg, action, meta, _, prev_action = step
-            rgbs[i][t] = rgb
-            segs[i][t] = seg
+            if type(rgb) != int:
+                rgbs[i][t] = rgb
+            if type(seg) != int:
+                segs[i][t] = seg
             metas[i][t] = meta
 
     rgb_batch = pad_sequence(rgbs)
@@ -216,19 +218,30 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return action
 
+    @staticmethod
+    def _make_semantic(semantic_observation):
+        wall  = torch.Tensor((semantic_observation==1)|(semantic_observation==9)|(semantic_observation==40))
+        floor = torch.Tensor(semantic_observation==2)
+        return torch.stack([wall, floor], dim=-1)
+
     def __getitem__(self, idx):
-        rgb    = Image.open(self.imgs[idx])
-        seg    = torch.Tensor(np.load(self.segs[idx])==2).unsqueeze(dim=-1)
+        rgb = 0
+        if len(self.rgbs) > idx:
+            rgb    = torch.Tensor(np.uint8(Image.open(self.imgs[idx])))
+
+        seg = 0
+        if len(self.segs) > idx:
+            seg    = HabitatDataset._make_semantic(np.load(self.segs[idx])['semantic'])
 
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
 
+        """
         if self.augmentation:
             rgb, action, meta = self.aug(idx, rgb, action)
         else:
-            meta = self._get_direction(idx)
-
-        rgb  = torch.Tensor(np.uint8(rgb))
+        """
+        meta = self._get_direction(idx)
 
         # rgb, mapview, segmentation, action, meta, episode, prev_action
         return rgb, 0, seg, action, meta, self.episode_idx, prev_action

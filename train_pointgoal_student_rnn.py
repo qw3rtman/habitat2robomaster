@@ -30,7 +30,9 @@ c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 # NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ
 rollout_freq = {
     'castle': [50, 10, 5],
-    'office': [100, 20, 5]
+    'office': [100, 20, 5],
+    'mp3d': [50, 10, 10],
+    'gibson': [50, 10, 10]
 }
 
 def _get_box(all_x, EPOCH_FREQ):
@@ -91,12 +93,12 @@ def _get_hist2d(x, y):
     return fig
 
 def pass_single(net, criterion, rgb, seg, action, meta, config, optim=None):
-    action = action.to(config['device'])
-    meta = meta.to(config['device'])
     if config['student_args']['target'] == 'semantic':
         target = seg.to(config['device'])
     else:
         target = rgb.to(config['device'])
+    action = action.to(config['device'])
+    meta = meta.to(config['device'])
 
     _action = net((target, meta))
     loss = criterion(_action, action)
@@ -113,9 +115,11 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
 
     method = config['student_args']['method']
     if method == 'tbptt':
+        #k1 = 20
+        #k2 = 10
         # NOTE: k1-k2 backprop, then k2 tbptt
-        k1 = np.random.randint(10, 15) # frequency of TBPTT
-        k2 = np.random.randint(3, 8) # length of TBPTT
+        k1 = np.random.randint(10, 20) # frequency of TBPTT
+        k2 = np.random.randint(2, 8) # length of TBPTT
 
     if config['student_args']['target'] == 'semantic':
         target = seg.to(config['device'])
@@ -131,9 +135,9 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
     if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = (500//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = int((320//config['data_args']['batch_size']) - 10)
     else: #                  1080    (8513978368)
-        sequence_length_capacity = (360//config['data_args']['batch_size']) - 10
+        sequence_length_capacity = int((200//config['data_args']['batch_size']) - 10)
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
     tbptt = method in ['tbptt', 'wwtbptt']
@@ -253,10 +257,11 @@ def validate(net, env, data, config):
                     draw.rectangle((0, 0, 255, 20), fill='black')
                     draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
+                    classes = _make_semantic(step['semantic'])
                     if config['student_args']['target'] == 'semantic': # overlay road
-                        road = Image.new('RGB',frame.size,(116,56,117))
+                        floor = Image.new('RGB',frame.size,(116,56,117))
                         mask = Image.fromarray(255*np.uint8(step['semantic']==2))
-                        frame = Image.composite(road,frame,mask).convert('RGB')
+                        frame = Image.composite(floor,frame,mask).convert('RGB')
 
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
@@ -490,6 +495,7 @@ if __name__ == '__main__':
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
         'bc', parsed.method,                                                                                  # training paradigm
+        f'{parsed.proxy}2{parsed.target}',                                                                    # modalities
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
     ])) + f'-v{parsed.description}'
@@ -520,7 +526,7 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
-                'scene': parsed.scene,
+                'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,

@@ -53,17 +53,19 @@ CONFIGS = {
 DATAPATH = {
     'castle':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz',
     'office':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
-    'mp3d':       '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
+    'mp3d':       '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
+    'gibson':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz'
 }
 
 SPLIT = {
     'castle':    {'train': 'train', 'val': 'val'},
     'office':    {'train': 'B6ByNegPMKs_train', 'val': 'B6ByNegPMKs_val'},
-    'mp3d':      {'train': 'train', 'val': 'val'}
+    'mp3d':      {'train': 'train', 'val': 'val', 'test': 'test'},
+    'gibson':    {'train': 'train', 'val': 'val', 'val_mini': 'val_mini'}
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR'], **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert mode in MODES
@@ -171,7 +173,7 @@ class Rollout:
 
     def act_student(self):
         if self.proxy == 'semantic':
-            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])==2).unsqueeze(dim=-1).unsqueeze(dim=0) # NOTE: just floor
+            proxy = HabitatDataset._make_semantic(self.observations[self.proxy]).unsqueeze(dim=0)
         else:
             proxy = torch.Tensor(np.uint8(self.observations[self.proxy])).unsqueeze(dim=0)
         proxy = proxy.to(self.device)
@@ -229,9 +231,9 @@ class Rollout:
                 'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
                 'rgb': self.observations['rgb'],
                 'depth': self.observations['depth'] if 'depth' in self.observations else None,
+                'semantic': np.uint8(self.observations['semantic']) if 'semantic' in self.observations else None,
                 'compass_r': self.observations['pointgoal_with_gps_compass'][0],
                 'compass_t': self.observations['pointgoal_with_gps_compass'][1],
-                'semantic': self.observations['semantic'] if 'semantic' in self.observations else None,
                 'is_stuck': is_stuck,
                 'is_slide': is_slide
             }
@@ -293,8 +295,8 @@ def save_episode(env, episode_dir):
 
         Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         #np.save(episode_dir / f'depth_{i:04}', step['depth'])
-        if 'semantic' in step:
-            np.save(episode_dir / f'seg_{i:04}', step['semantic'])
+        if 'semantic' in step and step['semantic'] is not None:
+            np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
         if env.mode == 'both':
             action = step['action']['teacher']
         else:
@@ -327,6 +329,8 @@ def save_episode(env, episode_dir):
     info['end_pos_x'], info['end_pos_y'], info['end_pos_z']                            = env.env.current_episode.goals[0].position
     pd.DataFrame([info]).to_csv(episode_dir / 'info.csv', index=False)
 
+    return stats[-1]['step']
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -336,8 +340,11 @@ if __name__ == '__main__':
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--mode', choices=MODES, required=True)
     parser.add_argument('--shuffle', action='store_true')
-    parser.add_argument('--scene', choices=DATAPATH.keys(), required=True)
+    parser.add_argument('--dataset', choices=DATAPATH.keys(), required=True)
+    parser.add_argument('--scene', default='*')
     parser.add_argument('--split', required=True)
+    parser.add_argument('--semantic', action='store_true')
+    parser.add_argument('--num_frames', type=int)
     parsed = parser.parse_args()
 
     summary = defaultdict(float)
@@ -345,13 +352,29 @@ if __name__ == '__main__':
     if (parsed.dataset_dir / 'summary.csv').exists():
         summary = pd.read_csv(parsed.dataset_dir / 'summary.csv').iloc[0]
 
-    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.scene)
-    for ep in range(int(summary['ep']), int(summary['ep'])+parsed.num_episodes):
+    sensors = ['RGB_SENSOR', 'DEPTH_SENSOR']
+    if parsed.semantic:
+        sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.dataset, scenes=[parsed.scene], sensors=sensors)
+
+    ep = int(summary['ep'])
+    ending_ep = ep + parsed.num_episodes
+    total_frames = 0
+    while True:
+        if parsed.num_frames:
+            if total_frames >= parsed.num_frames:
+                break
+        else:
+            if ep >= ending_ep:
+                break
+
         episode_dir = parsed.dataset_dir / f'{ep:06}'
+        if parsed.scene != '*':
+            episode_dir = parsed.dataset_dir / f'{parsed.scene}-{parsed.split}-{ep:06}'
         shutil.rmtree(episode_dir, ignore_errors=True)
         episode_dir.mkdir(parents=True, exist_ok=True)
 
-        save_episode(env, episode_dir)
+        num_frames = save_episode(env, episode_dir)
 
         print(f'[!] finish ep {ep:06}')
         for m, v in env.env.get_metrics().items():
@@ -363,3 +386,6 @@ if __name__ == '__main__':
         print()
 
         pd.DataFrame([summary]).to_csv(parsed.dataset_dir / 'summary.csv', index=False)
+
+        total_frames += num_frames
+        ep += 1
