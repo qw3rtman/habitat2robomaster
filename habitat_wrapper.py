@@ -61,7 +61,8 @@ SPLIT = {
     'castle':    {'train': 'train', 'val': 'val'},
     'office':    {'train': 'B6ByNegPMKs_train', 'val': 'B6ByNegPMKs_val'},
     'mp3d':      {'train': 'train', 'val': 'val', 'test': 'test'},
-    'gibson':    {'train': 'train', 'val': 'val', 'val_mini': 'val_mini'}
+    'gibson':    {'train': 'train', 'val': 'val', 'val_mini': 'val_mini',
+                  'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'}
 }
 
 class Rollout:
