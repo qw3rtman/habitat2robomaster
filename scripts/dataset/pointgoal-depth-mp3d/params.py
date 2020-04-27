@@ -4,13 +4,14 @@ from pathlib import Path
 jobs = list()
 
 NUM_FRAMES = {
-    'train': 40000,
-    'val': 800,
-    'test': 800
+    'train': 9350,
+    'val': 270,
+    'test': 270
 }
 
-root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d-semantic'
+root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d'
 
+# train/test/val for MP3D, save RGB + semantic
 for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').glob('mp3d_*'):
     split = split_f.stem.split('_')[1]
     with open(split_f, 'r') as f:
@@ -29,6 +30,8 @@ for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').g
             --split "{split}" \\
             --scene {scene} \\
             --num_frames {NUM_FRAMES[split]} \\
+            --shuffle \\
+            --rgb \\
             --semantic
         """
 

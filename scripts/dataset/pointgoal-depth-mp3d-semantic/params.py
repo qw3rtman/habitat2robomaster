@@ -4,15 +4,15 @@ from pathlib import Path
 jobs = list()
 
 NUM_FRAMES = {
-    'train': 9350,
-    'val': 270,
-    'test': 270
+    'train': 40000,
+    'val': 800,
+    'test': 800
 }
 
-root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-gibson'
+root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d-semantic'
 
-# train for Gibson, only RGB (since no semantic available)
-for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').glob('gibson_*.txt'):
+# train/test/val for MP3D, only semantic
+for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').glob('mp3d_*'):
     split = split_f.stem.split('_')[1]
     with open(split_f, 'r') as f:
         scenes = [line.rstrip() for line in f]
@@ -26,12 +26,12 @@ for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').g
             --proxy depth \\
             --dataset_dir {root}/{scene}-{split} \\
             --num_episodes 50 \\
-            --dataset gibson \\
-            --split "{split}_ddppo" \\
+            --dataset mp3d \\
+            --split "{split}" \\
             --scene {scene} \\
             --num_frames {NUM_FRAMES[split]} \\
             --shuffle \\
-            --rgb
+            --semantic
         """
 
         jobs.append(job)
