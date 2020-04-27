@@ -18,7 +18,7 @@ from utils import StaticWrap, DynamicWrap
 ACTIONS = torch.eye(4)
 
 
-def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, **kwargs):
+def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, rgb=True, semantic=True, **kwargs):
 
     def make_dataset(is_train):
         data = list()
@@ -28,7 +28,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episodes)))
 
         for episode_dir in episodes[:num_episodes]:
-            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True, augmentation=augmentation))
+            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True, augmentation=augmentation, rgb=rgb, semantic=semantic))
 
         print('%s: %d' % (train_or_val, len(data)))
 
@@ -45,8 +45,10 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 def collate_episodes(episodes):
     rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
-        rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
-        segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.float32))
+        if episode.rgb:
+            rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
+        if episode.semantic:
+            segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.float32))
 
         actions.append(episode.actions)
         prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
@@ -62,8 +64,14 @@ def collate_episodes(episodes):
                 segs[i][t] = seg
             metas[i][t] = meta
 
-    rgb_batch = pad_sequence(rgbs)
-    seg_batch = pad_sequence(segs)
+    rgb_batch = 0
+    if len(rgbs) > 0:
+        rgb_batch = pad_sequence(rgbs)
+
+    seg_batch = 0
+    if len(segs) > 0:
+        seg_batch = pad_sequence(segs)
+
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
     meta_batch = pad_sequence(metas)
@@ -88,7 +96,7 @@ class EpisodeDataset(torch.utils.data.Dataset):
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False):
+    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False, rgb=True, semantic=True):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
@@ -110,10 +118,18 @@ class HabitatDataset(torch.utils.data.Dataset):
                     _indices[i] = False
 
             self.imgs = [rgb for i, rgb in enumerate(sorted(episode_dir.glob('rgb_*.png'))) if _indices[i]]
-            self.segs = [seg for i, seg in enumerate(sorted(episode_dir.glob('seg_*.npy'))) if _indices[i]]
+            self.segs = [seg for i, seg in enumerate(sorted(episode_dir.glob('seg_*.npz'))) if _indices[i]]
         else:
             self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
-            self.segs = list(sorted(episode_dir.glob('seg_*.npy')))
+            self.segs = list(sorted(episode_dir.glob('seg_*.npz')))
+
+        self.rgb = rgb
+        if rgb:
+            assert len(self.imgs) > 0
+
+        self.semantic = semantic
+        if semantic:
+            assert len(self.segs) > 0
 
         self.compass = torch.Tensor(np.stack(itemgetter('compass_r','compass_t')(self.measurements), -1)[_indices])
         self.positions = torch.Tensor(np.stack(itemgetter('x','y','z')(self.measurements), -1)[_indices])
@@ -226,11 +242,11 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         rgb = 0
-        if len(self.rgbs) > idx:
+        if len(self.imgs) > idx and self.rgb:
             rgb    = torch.Tensor(np.uint8(Image.open(self.imgs[idx])))
 
         seg = 0
-        if len(self.segs) > idx:
+        if len(self.segs) > idx and self.semantic:
             seg    = HabitatDataset._make_semantic(np.load(self.segs[idx])['semantic'])
 
         action = self.actions[idx]
