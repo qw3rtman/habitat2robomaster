@@ -37,7 +37,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         elif rnn:
             return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes) # samples == episodes
         else:
-            return StaticWrap(data, batch_size, 25000 if is_train else 2500, num_workers)                                        # samples == # steps
+            return StaticWrap(data, batch_size, 25000 if is_train else 2500, num_workers)                                          # samples == # steps
 
     return make_dataset(True), make_dataset(False)
 

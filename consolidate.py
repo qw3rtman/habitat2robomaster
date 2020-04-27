@@ -11,7 +11,8 @@ for scene in parsed.source.glob(f'*{parsed.split}'):
     episodes = list(scene.iterdir())
     for i, episode in enumerate(episodes):
         if episode.is_dir():
-            if i >= len(episodes) - 3:
+            print(episode)
+            if i >= len(episodes) - 1: # last episode
                 split = 'val'
             else:
                 split = 'train'

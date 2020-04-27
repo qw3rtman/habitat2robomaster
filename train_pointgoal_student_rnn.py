@@ -27,12 +27,17 @@ all_dfg = []
 all_d_ratio = []
 c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 
+COLORS = [
+    (255,   0, 232), # wall
+    (116,  56, 117)  # floor
+]
+
 # NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ
 rollout_freq = {
     'castle': [50, 10, 5],
     'office': [100, 20, 5],
-    'mp3d': [50, 10, 10],
-    'gibson': [50, 10, 10]
+    'mp3d': [50, 10, 25],
+    'gibson': [50, 10, 25]
 }
 
 def _get_box(all_x, EPOCH_FREQ):
@@ -118,8 +123,8 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
         #k1 = 20
         #k2 = 10
         # NOTE: k1-k2 backprop, then k2 tbptt
-        k1 = np.random.randint(10, 20) # frequency of TBPTT
-        k2 = np.random.randint(2, 8) # length of TBPTT
+        k1 = np.random.randint(7, 12) # frequency of TBPTT
+        k2 = np.random.randint(2, 6) # length of TBPTT
 
     if config['student_args']['target'] == 'semantic':
         target = seg.to(config['device'])
@@ -135,9 +140,9 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
     if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = int((320//config['data_args']['batch_size']) - 10)
+        sequence_length_capacity = int((480//config['data_args']['batch_size']) - 10)
     else: #                  1080    (8513978368)
-        sequence_length_capacity = int((200//config['data_args']['batch_size']) - 10)
+        sequence_length_capacity = int((320//config['data_args']['batch_size']) - 10)
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
     tbptt = method in ['tbptt', 'wwtbptt']
@@ -257,11 +262,13 @@ def validate(net, env, data, config):
                     draw.rectangle((0, 0, 255, 20), fill='black')
                     draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
-                    classes = _make_semantic(step['semantic'])
                     if config['student_args']['target'] == 'semantic': # overlay road
-                        floor = Image.new('RGB',frame.size,(116,56,117))
-                        mask = Image.fromarray(255*np.uint8(step['semantic']==2))
-                        frame = Image.composite(floor,frame,mask).convert('RGB')
+                        classes = HabitatDataset._make_semantic(step['semantic'])
+
+                        for _class in range(classes.shape[-1]):
+                            label = Image.new('RGB', frame.size, COLORS[_class])
+                            mask = Image.fromarray(255 * np.uint8(classes[:,:,_class]))
+                            frame = Image.composite(label,frame,mask).convert('RGB')
 
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
@@ -404,13 +411,13 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = get_model(**config['student_args']).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'])
+    data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
 
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
     sensors = ['RGB_SENSOR']
     if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
         sensors.append('SEMANTIC_SENSOR')
-    env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=False, split='val', dataset=config['data_args']['scene'], sensors=sensors)
+    env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
