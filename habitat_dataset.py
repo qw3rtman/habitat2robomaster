@@ -72,21 +72,30 @@ def collate_episodes(episodes):
 
         metas.append(episode.meta)
 
-        rgbs, segs = [], []
+        if episode.rgb:
+            _rgbs = torch.empty((len(episode), 256, 256, 3))
+
+        if episode.semantic:
+            _segs = torch.empty((len(episode), 256, 256, HabitatDataset.NUM_SEMANTIC_CLASSES))
+
         for t, step in enumerate(episode):
             rgb, _, seg, action, _, _, prev_action = step
             if type(rgb) != int:
-                rgbs.append(rgb)
+                _rgbs[i] = rgb
             if type(seg) != int:
-                segs.append(seg)
+                _segs[i] = seg
+
+        if episode.rgb:
+            rgbs.append(_rgbs)
+        if episode.semantic:
+            segs.append(_segs)
 
     rgb_batch = 0
     if len(rgbs) > 0:
-        rgb_batch = pad_sequence(torch.stack(rgbs))
-
+        rgb_batch = pad_sequence(rgbs)
     seg_batch = 0
     if len(segs) > 0:
-        seg_batch = pad_sequence(torch.stack(segs))
+        seg_batch = pad_sequence(segs)
 
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
@@ -158,7 +167,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.start_rotation = torch.Tensor(list(map(float, info[11:15])))
         self.end_position   = torch.Tensor(list(map(float, info[15:18])))
 
-        self.meta = torch.zeros((self.actions.shape[0], 2))
+        self.meta = torch.empty((self.actions.shape[0], 2))
         for i in range(self.actions.shape[0]):
             self.meta[i] = self._get_direction(i)
 

@@ -239,13 +239,13 @@ def validate(net, env, data, config):
     env.env.episode_iterator._iterator = iter(env.env.episode_iterator.episodes)
     net.batch_size = 1
     if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
-        distance_to_goal = np.zeros(NUM_EPISODES)
-        distance_from_goal = np.zeros(NUM_EPISODES)
-        d_ratio = np.zeros(NUM_EPISODES)
-        success = np.zeros(NUM_EPISODES)
-        spl = np.zeros(NUM_EPISODES)
-        soft_spl = np.zeros(NUM_EPISODES)
-        avg_value = np.zeros(NUM_EPISODES)
+        distance_to_goal = np.empty(NUM_EPISODES)
+        distance_from_goal = np.empty(NUM_EPISODES)
+        d_ratio = np.empty(NUM_EPISODES)
+        success = np.empty(NUM_EPISODES)
+        spl = np.empty(NUM_EPISODES)
+        soft_spl = np.empty(NUM_EPISODES)
+        avg_value = np.empty(NUM_EPISODES)
 
         for ep in range(NUM_EPISODES):
             value = []
@@ -371,7 +371,6 @@ def train(net, env, data, optim, config):
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
-
 
     for i, x in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         # rgb.shape
