@@ -19,7 +19,7 @@ from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
 
-memory = Memory('/scratch/cluster/nimit/data/cache', verbose=1)
+memory = Memory('/scratch/cluster/nimit/data/cache', verbose=0)
 def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, rgb=True, semantic=True, **kwargs):
     """
         * shared memory can be a bottleneck on clusters, num_workers=0 is fast enough
@@ -63,32 +63,30 @@ def collate_episodes(episodes):
         if not episode.init:
             episode._init()
 
-        if episode.rgb:
-            rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
-        if episode.semantic:
-            segs.append(torch.zeros((len(episode), 256, 256, 2), dtype=torch.float32))
-
         actions.append(episode.actions)
-        prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
-        prev_actions[i][1:] = episode.actions[:-1].clone()
 
-        metas.append(torch.zeros((len(episode), 2), dtype=torch.float))
+        _prev_actions = torch.empty_like(episode.actions)
+        _prev_actions[0] = 0
+        _prev_actions[1:].copy_(episode.actions[:-1])
+        prev_actions.append(_prev_actions)
 
+        metas.append(episode.meta)
+
+        rgbs, segs = [], []
         for t, step in enumerate(episode):
-            rgb, _, seg, action, meta, _, prev_action = step
+            rgb, _, seg, action, _, _, prev_action = step
             if type(rgb) != int:
-                rgbs[i][t] = rgb
+                rgbs.append(rgb)
             if type(seg) != int:
-                segs[i][t] = seg
-            metas[i][t] = meta
+                segs.append(seg)
 
     rgb_batch = 0
     if len(rgbs) > 0:
-        rgb_batch = pad_sequence(rgbs)
+        rgb_batch = pad_sequence(torch.stack(rgbs))
 
     seg_batch = 0
     if len(segs) > 0:
-        seg_batch = pad_sequence(segs)
+        seg_batch = pad_sequence(torch.stack(segs))
 
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
@@ -160,6 +158,10 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.start_rotation = torch.Tensor(list(map(float, info[11:15])))
         self.end_position   = torch.Tensor(list(map(float, info[15:18])))
 
+        self.meta = torch.zeros((self.actions.shape[0], 2))
+        for i in range(self.actions.shape[0]):
+            self.meta[i] = self._get_direction(i)
+
         self.init = True
 
     def __len__(self):
@@ -187,7 +189,46 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return torch.Tensor([-direction_vector_agent[2], -direction_vector_agent[0]])
 
-    def aug(self, start, rgb, action):
+    NUM_SEMANTIC_CLASSES = 2
+    @staticmethod
+    def _make_semantic(semantic_observation):
+        obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
+        wall  = torch.Tensor(np.isin(semantic_observation, obstacles))
+
+        walkable = np.uint8([2])
+        floor = torch.Tensor(np.isin(semantic_observation, walkable))
+
+        return torch.stack([wall, floor], dim=-1)
+
+    def __getitem__(self, idx):
+        if not self.init:
+            self._init()
+
+        rgb = 0
+        if len(self.imgs) > idx and self.rgb:
+            rgb    = torch.Tensor(cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED))
+            #rgb    = torch.Tensor(Image.open(self.imgs[idx]))
+
+        seg = 0
+        if len(self.segs) > idx and self.semantic:
+            seg    = HabitatDataset._make_semantic(np.load(self.segs[idx])['semantic'])
+
+        action = self.actions[idx]
+        prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
+        meta = self.meta[idx]
+
+        """
+        if self.augmentation:
+            rgb, action, meta = self._aug(idx, rgb, action)
+        """
+
+        # rgb, mapview, segmentation, action, meta, episode, prev_action
+        return rgb, 0, seg, action, meta, self.episode_idx, prev_action
+
+    def __lt__(self, other):
+        return self.loss < other.loss
+
+    def _aug(self, start, rgb, action):
         p = np.random.random()
 
         """
@@ -238,45 +279,6 @@ class HabitatDataset(torch.utils.data.Dataset):
             return torch.LongTensor([2])[0]
 
         return action
-
-    @staticmethod
-    def _make_semantic(semantic_observation):
-        obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
-        wall  = torch.Tensor(np.isin(semantic_observation, obstacles))
-
-        walkable = np.uint8([2])
-        floor = torch.Tensor(np.isin(semantic_observation, walkable))
-
-        return torch.stack([wall, floor], dim=-1)
-
-    def __getitem__(self, idx):
-        if not self.init:
-            self._init()
-
-        rgb = 0
-        if len(self.imgs) > idx and self.rgb:
-            rgb    = torch.Tensor(cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED))
-            #rgb    = torch.Tensor(np.uint8(Image.open(self.imgs[idx])))
-
-        seg = 0
-        if len(self.segs) > idx and self.semantic:
-            seg    = HabitatDataset._make_semantic(np.load(self.segs[idx])['semantic'])
-
-        action = self.actions[idx]
-        prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
-
-        """
-        if self.augmentation:
-            rgb, action, meta = self.aug(idx, rgb, action)
-        else:
-        """
-        meta = self._get_direction(idx)
-
-        # rgb, mapview, segmentation, action, meta, episode, prev_action
-        return rgb, 0, seg, action, meta, self.episode_idx, prev_action
-
-    def __lt__(self, other):
-        return self.loss < other.loss
 
 
 if __name__ == '__main__':

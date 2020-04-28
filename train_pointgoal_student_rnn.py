@@ -36,8 +36,8 @@ COLORS = [
 rollout_freq = {
     'castle': [50, 10, 5],
     'office': [100, 20, 5],
-    'mp3d': [50, 10, 25],
-    'gibson': [50, 10, 25]
+    'mp3d': [50, 10, 20],
+    'gibson': [50, 10, 20]
 }
 
 def _get_box(all_x, EPOCH_FREQ):
@@ -123,8 +123,8 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
         #k1 = 20
         #k2 = 10
         # NOTE: k1-k2 backprop, then k2 tbptt
-        k1 = np.random.randint(7, 12) # frequency of TBPTT
-        k2 = np.random.randint(2, 6) # length of TBPTT
+        k1 = np.random.randint(4, 6) # frequency of TBPTT
+        k2 = np.random.randint(2, 4) # length of TBPTT
 
     if config['student_args']['target'] == 'semantic':
         target = seg.to(config['device'])
@@ -423,7 +423,7 @@ def checkpoint_project(net, optim, scheduler, config):
 def main(config):
     input_channels = 3
     if config['student_args']['target'] == 'semantic':
-        input_channels = 2
+        input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
     net = get_model(**config['student_args'], input_channels=input_channels).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
 
@@ -547,6 +547,8 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
+                'num_workers': 1 if parsed.method != 'feedforward' else 4,
+
                 'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
