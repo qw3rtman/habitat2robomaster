@@ -30,7 +30,8 @@ class PointNavResNetPolicy(Policy):
         resnet_baseplanes=32,
         backbone="resnet50",
         normalize_visual_inputs=False,
-        tgt_mode='ddppo'
+        tgt_mode='ddppo',
+        input_channels=3
     ):
         super().__init__(
             PointNavResNetNet(
@@ -43,7 +44,8 @@ class PointNavResNetPolicy(Policy):
                 backbone=backbone,
                 resnet_baseplanes=resnet_baseplanes,
                 normalize_visual_inputs=normalize_visual_inputs,
-                tgt_mode=tgt_mode
+                tgt_mode=tgt_mode,
+                input_channels=input_channels
             ),
             action_space.n,
         )
@@ -58,6 +60,7 @@ class ResNetEncoder(nn.Module):
         spatial_size=128,
         make_backbone=None,
         normalize_visual_inputs=False,
+        input_channels=3
     ):
         super().__init__()
 
@@ -81,7 +84,7 @@ class ResNetEncoder(nn.Module):
             self.running_mean_and_var = nn.Sequential()
 
         if not self.is_blind:
-            input_channels = self._n_input_depth + self._n_input_rgb
+            input_channels = input_channels #self._n_input_depth + self._n_input_rgb
             self.backbone = make_backbone(input_channels, baseplanes, ngroups)
 
             final_spatial = int(
@@ -167,7 +170,8 @@ class PointNavResNetNet(Net):
         backbone,
         resnet_baseplanes,
         normalize_visual_inputs,
-        tgt_mode='ddppo'
+        tgt_mode='ddppo',
+        input_channels=3
     ):
         super().__init__()
         self.goal_sensor_uuid = goal_sensor_uuid
@@ -193,6 +197,7 @@ class PointNavResNetNet(Net):
             ngroups=resnet_baseplanes // 2,
             make_backbone=getattr(resnet, backbone),
             normalize_visual_inputs=normalize_visual_inputs,
+            input_channels=input_channels
         )
 
         if not self.visual_encoder.is_blind:

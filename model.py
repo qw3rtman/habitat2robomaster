@@ -19,9 +19,9 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_model(target, conditional=False, rnn=False, **resnet_kwargs):
+def get_model(target, conditional=False, rnn=False, input_channels=3, **resnet_kwargs):
     if rnn:
-        return ConditionalStateEncoderImitation(target, **resnet_kwargs)
+        return ConditionalStateEncoderImitation(target, input_channels=input_channels, **resnet_kwargs)
 
     if conditional:
         return ConditionalImitation(target, **resnet_kwargs)
@@ -90,7 +90,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, target, batch_size, resnet_model='resnet50', **kwargs):
+    def __init__(self, target, batch_size, resnet_model='resnet50', input_channels=3, **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         self.target = target
@@ -122,7 +122,8 @@ class ConditionalStateEncoderImitation(nn.Module):
             backbone=resnet_model,
             goal_sensor_uuid='pointgoal_with_gps_compass',
             normalize_visual_inputs='rgb' in observation_spaces.spaces.keys(),
-            tgt_mode='nimit' # NOTE: (dx, dy)
+            tgt_mode='nimit', # NOTE: (dx, dy)
+            input_channels=input_channels
         )
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

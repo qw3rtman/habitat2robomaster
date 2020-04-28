@@ -34,9 +34,11 @@ class StaticWrap(object):
         self.samples = samples
         self.count = 0
 
+        self.iterator = iter(self.data)
+
     def __iter__(self):
         for _ in range(len(self)):
-            yield next(self.data)
+            yield next(self.iterator)
 
     def __len__(self):
         return self.samples // self.batch_size

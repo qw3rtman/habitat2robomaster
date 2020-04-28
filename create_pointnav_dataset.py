@@ -12,8 +12,8 @@ import habitat
 import habitat_sim
 from habitat.datasets.pointnav.pointnav_generator import generate_pointnav_episode
 
-NUM_EPISODES = int(5e3)
-GIBSON_QUALITY = Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits/gibson_quality_ratings.csv')
+NUM_EPISODES = int(5e2)
+GIBSON_QUALITY = Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits/gibson_splits/gibson_quality_ratings.csv')
 GIBSON_SPLITS = Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits/gibson_splits/train_val_test_fullplus.csv')
 EPISODES_DIR = Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1')
 SPLIT = ''

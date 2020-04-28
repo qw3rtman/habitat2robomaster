@@ -82,7 +82,7 @@ RL:
     # Initialize just the visual encoder backbone with pretrained weights
     pretrained_encoder: False
     # Whether or not the visual encoder backbone will be trained.
-    train_encoder: True
+    train_encoder: False #True
     # Whether or not to reset the critic linear layer
     reset_critic: True
 

@@ -10,9 +10,13 @@ for i, row in x.iterrows():
     if _class == _class:
         _class = int(_class)
     _label = row['nyu40class']
+    print(_class, _label)
 
     labels[_class] = _label
 
+print()
+print()
+print()
 keys = sorted(labels)
 for key in keys:
     print(key, labels[key])

@@ -140,9 +140,9 @@ def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, con
     #                              batch_size=4 can do 83 on 1080, scales linearly
     total_memory = torch.cuda.get_device_properties(config['device']).total_memory
     if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = int((480//config['data_args']['batch_size']) - 10)
+        sequence_length_capacity = int((240//config['data_args']['batch_size']) - 10)
     else: #                  1080    (8513978368)
-        sequence_length_capacity = int((320//config['data_args']['batch_size']) - 10)
+        sequence_length_capacity = int((200//config['data_args']['batch_size']) - 10)
     #print(f'sequence length capacity: {sequence_length_capacity}')
 
     tbptt = method in ['tbptt', 'wwtbptt']
@@ -216,9 +216,14 @@ def validate(net, env, data, config):
             loss_mean = pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
 
+        if config['student_args']['target'] == 'semantic':
+            num_images = np.prod(seg.shape[:-3])
+        else:
+            num_images = np.prod(rgb.shape[:-3])
+
         metrics = {
             'loss': loss_mean,
-            'images_per_second': np.prod(rgb.shape[:-3]) / (time.time() - tick)
+            'images_per_second': num_images / (time.time() - tick)
         }
 
         wandb.log(
@@ -257,10 +262,6 @@ def validate(net, env, data, config):
                 if ep % VIDEO_FREQ == 0:
                     frame = Image.fromarray(step['rgb'])
                     draw = ImageDraw.Draw(frame)
-                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
-                    direction = env.get_direction()
-                    draw.rectangle((0, 0, 255, 20), fill='black')
-                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
                     if config['student_args']['target'] == 'semantic': # overlay road
                         classes = HabitatDataset._make_semantic(step['semantic'])
@@ -269,6 +270,11 @@ def validate(net, env, data, config):
                             label = Image.new('RGB', frame.size, COLORS[_class])
                             mask = Image.fromarray(255 * np.uint8(classes[:,:,_class]))
                             frame = Image.composite(label,frame,mask).convert('RGB')
+
+                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
+                    direction = env.get_direction()
+                    draw.rectangle((0, 0, 255, 20), fill='black')
+                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
 
                     images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
@@ -381,9 +387,14 @@ def train(net, env, data, optim, config):
 
         wandb.run.summary['step'] += 1
 
+        if config['student_args']['target'] == 'semantic':
+            num_images = np.prod(seg.shape[:-3])
+        else:
+            num_images = np.prod(rgb.shape[:-3])
+
         metrics = {
             'loss': loss_mean,
-            'images_per_second': np.prod(rgb.shape[:-3]) / (time.time() - tick)
+            'images_per_second': num_images / (time.time() - tick)
         }
 
         wandb.log(
@@ -410,7 +421,10 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = get_model(**config['student_args']).to(config['device'])
+    input_channels = 3
+    if config['student_args']['target'] == 'semantic':
+        input_channels = 2
+    net = get_model(**config['student_args'], input_channels=input_channels).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
 
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')

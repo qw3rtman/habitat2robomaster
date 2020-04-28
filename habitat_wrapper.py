@@ -25,7 +25,7 @@ from gym.spaces import Box, Dict, Discrete
 
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 MODES = ['student', 'teacher', 'both']
-METRICS = ['success', 'spl', 'softspl']
+METRICS = ['success', 'spl', 'softspl', 'distance_to_goal']
 MODALITIES = ['rgb', 'depth', 'semantic']
 
 jitter_threshold = {
@@ -211,7 +211,7 @@ class Rollout:
                 'student_logits': student_logits
             }
 
-    def rollout(self):
+    def rollout(self, expose=True):
         self.clean()
         self.state = self.env.sim.get_agent_state()
         if self.student != None and hasattr(self.student, 'clean'):
@@ -220,31 +220,37 @@ class Rollout:
         while not self.env.episode_over:
             action = self.get_action()
             #print(action)
-            self.state = self.env.sim.get_agent_state()
 
-            is_stuck = self.is_stuck()
-            is_slide = self.is_slide()
-            sample = {
-                'step': self.i,
-                'action': action,
-                'position': self.state.position,
-                'rotation': self.state.rotation.components,
-                'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
-                'rgb': self.observations['rgb'] if 'rgb' in self.observations else None,
-                'depth': self.observations['depth'] if 'depth' in self.observations else None,
-                'semantic': np.uint8(self.observations['semantic']) if 'semantic' in self.observations else None,
-                'compass_r': self.observations['pointgoal_with_gps_compass'][0],
-                'compass_t': self.observations['pointgoal_with_gps_compass'][1],
-                'is_stuck': is_stuck,
-                'is_slide': is_slide
-            }
+            if expose:
+                self.state = self.env.sim.get_agent_state()
 
-            # pruning rules
-            if self.mode == 'teacher':
-                if self.task == 'dontcrash' and action[self.mode]['action'] == 0:
-                    break
+                is_stuck = self.is_stuck()
+                is_slide = self.is_slide()
 
-            yield sample
+                sample = {
+                    'step': self.i,
+                    'action': action,
+                    'position': self.state.position,
+                    'rotation': self.state.rotation.components,
+                    'collision': self.env.get_metrics()['collisions']['is_collision'] if self.i > 0 else False,
+                    'rgb': self.observations['rgb'] if 'rgb' in self.observations else None,
+                    'depth': self.observations['depth'] if 'depth' in self.observations else None,
+                    'semantic': np.uint8(self.observations['semantic']) if 'semantic' in self.observations else None,
+                    'compass_r': self.observations['pointgoal_with_gps_compass'][0],
+                    'compass_t': self.observations['pointgoal_with_gps_compass'][1],
+                    'is_stuck': is_stuck,
+                    'is_slide': is_slide
+                }
+
+                # pruning rules
+                if self.mode == 'teacher':
+                    if self.task == 'dontcrash' and action[self.mode]['action'] == 0:
+                        break
+
+                yield sample
+            else:
+                yield None
+
             self.i += 1
 
             if self.mode == 'both': # wp 0.1, take the expert action

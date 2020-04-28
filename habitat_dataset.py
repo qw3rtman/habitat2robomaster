@@ -5,32 +5,47 @@ import pandas as pd
 from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
-from PIL import Image
 from pyquaternion import Quaternion
-
 from pathlib import Path
+from joblib import Memory
+
 import argparse
 from operator import itemgetter
 from itertools import repeat
+import subprocess
+import time
 
 from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
 
+memory = Memory('/scratch/cluster/nimit/data/cache', verbose=1)
+def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, rgb=True, semantic=True, **kwargs):
+    """
+        * shared memory can be a bottleneck on clusters, num_workers=0 is fast enough
+    """
 
-def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=4, augmentation=False, rgb=True, semantic=True, **kwargs):
+    @memory.cache
+    def get_episodes(split_dir):
+        episode_dirs = list(split_dir.iterdir())
+        num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episode_dirs)))
+
+        data = []
+        for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
+            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic))
+            if i % 500 == 0:
+                print(f'[{i:05}/{num_episodes}]')
+
+        return data
 
     def make_dataset(is_train):
-        data = list()
-        train_or_val = 'train' if is_train else 'val'
+        split = 'train' if is_train else 'val'
 
-        episodes = list((Path(dataset_dir) / train_or_val).iterdir())
-        num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episodes)))
+        start = time.time()
+        data = get_episodes(Path(dataset_dir) / split)
+        print(time.time()-start)
 
-        for episode_dir in episodes[:num_episodes]:
-            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate if is_train else True, augmentation=augmentation, rgb=rgb, semantic=semantic))
-
-        print('%s: %d' % (train_or_val, len(data)))
+        print('%s: %d' % (split, len(data)))
 
         if dagger:
             return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
@@ -45,10 +60,13 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 def collate_episodes(episodes):
     rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
+        if not episode.init:
+            episode._init()
+
         if episode.rgb:
             rgbs.append(torch.zeros((len(episode), 256, 256, 3), dtype=torch.uint8))
         if episode.semantic:
-            segs.append(torch.zeros((len(episode), 256, 256, 1), dtype=torch.float32))
+            segs.append(torch.zeros((len(episode), 256, 256, 2), dtype=torch.float32))
 
         actions.append(episode.actions)
         prev_actions.append(torch.zeros(len(episode), dtype=torch.long))
@@ -100,70 +118,57 @@ class HabitatDataset(torch.utils.data.Dataset):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
+        self.episode_dir = episode_dir
+        self.rgb = rgb
+        self.semantic = semantic
+
+        self.interpolate = interpolate
+        self.augmentation = augmentation
+
+        self.init = False
+        self._init()
+
+        # DAgger
         self.episode_idx = 0
         self.loss = 0.0 # kick out these seeded ones first
         self.is_seed = is_seed
-        self.augmentation = augmentation
 
-        self.episode_dir = episode_dir
+    def _init(self):
+        if self.init:
+            return
 
-        self.measurements = pd.read_csv(episode_dir / 'episode.csv')
-
-        _indices = np.ones(len(self.measurements), dtype=np.bool)
-        if interpolate:
-            for i in range(len(_indices)):
-                if i % 5 in [0, 1, 4] and i + 1 < len(_indices):
-                    _indices[i] = True
-                else:
-                    _indices[i] = False
-
-            self.imgs = [rgb for i, rgb in enumerate(sorted(episode_dir.glob('rgb_*.png'))) if _indices[i]]
-            self.segs = [seg for i, seg in enumerate(sorted(episode_dir.glob('seg_*.npz'))) if _indices[i]]
-        else:
-            self.imgs = list(sorted(episode_dir.glob('rgb_*.png')))
-            self.segs = list(sorted(episode_dir.glob('seg_*.npz')))
-
-        self.rgb = rgb
-        if rgb:
+        self.imgs = []
+        if self.rgb:
+            self.imgs = [str(img) for img in sorted(self.episode_dir.glob('rgb_*.png'))]
             assert len(self.imgs) > 0
 
-        self.semantic = semantic
-        if semantic:
+        self.segs = []
+        if self.semantic:
+            self.segs = [str(seg) for seg in sorted(self.episode_dir.glob('seg_*.npz'))]
             assert len(self.segs) > 0
 
-        self.compass = torch.Tensor(np.stack(itemgetter('compass_r','compass_t')(self.measurements), -1)[_indices])
-        self.positions = torch.Tensor(np.stack(itemgetter('x','y','z')(self.measurements), -1)[_indices])
-        self.rotations = torch.Tensor(np.stack(itemgetter('i','j','k','l')(self.measurements), -1)[_indices])
+        with open(self.episode_dir / 'episode.csv', 'r') as f:
+            measurements = f.readlines()[1:]
+        x = np.genfromtxt(measurements, delimiter=',', dtype=np.float32)
+        self.positions = torch.as_tensor(x[:, 5:8])
+        self.rotations = torch.as_tensor(x[:, 8:])
+        self.actions = torch.LongTensor(x[:, 1])
 
-        self.left = Quaternion(axis=[0,1,0], degrees=10)
-        self.right = Quaternion(axis=[0,1,0], degrees=-10)
+        with open(self.episode_dir / 'info.csv', 'r') as f:
+            info = f.readlines()[1].split(',')
+        self.start_position = torch.Tensor(list(map(float, info[8:11])))
+        self.start_rotation = torch.Tensor(list(map(float, info[11:15])))
+        self.end_position   = torch.Tensor(list(map(float, info[15:18])))
 
-        if interpolate:
-            _action_indices = []
-            for _index, include in enumerate(_indices):
-                if not include:
-                    continue
-                if _index % 5 == 0:
-                    _action_indices.append(_index)
-                if _index % 5 == 1:
-                    _action_indices.append(_index - 1)
-                if _index % 5 == 4:
-                    _action_indices.append(_index + 1)
-
-            self.actions = torch.LongTensor(self.measurements['action'])[_action_indices]
-            self.measurements = self.measurements[_indices]
-        else:
-            self.actions = torch.LongTensor(self.measurements['action'])
-
-        self.info = pd.read_csv(episode_dir / 'info.csv').iloc[0]
-        #self.scene = self.info['scene']
-        self.start_position = torch.Tensor(itemgetter('start_pos_x', 'start_pos_y', 'start_pos_z')(self.info))
-        # NOTE: really a quaternion
-        self.start_rotation = torch.Tensor(itemgetter('start_rot_i', 'start_rot_j', 'start_rot_k', 'start_rot_l')(self.info))
-        self.end_position   = torch.Tensor(itemgetter('end_pos_x', 'end_pos_y', 'end_pos_z')(self.info))
+        self.init = True
 
     def __len__(self):
-        return len(self.imgs)
+        if not self.init:
+            return 1 # doesn't matter in first phase
+            #return int(subprocess.check_output(f'tail -n1 {str(self.episode_dir) + "/episode.csv"}', shell=True).split(b',')[0]) + 1
+            #return int(subprocess.check_output(f'wc -l {str(self.episode_dir) + "/episode.csv"}', shell=True).split()[0]) - 1
+
+        return self.actions.shape[0]
 
     def _get_direction(self, start, end=None):
         source_position = self.positions[start]
@@ -236,14 +241,22 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     @staticmethod
     def _make_semantic(semantic_observation):
-        wall  = torch.Tensor((semantic_observation==1)|(semantic_observation==9)|(semantic_observation==40))
-        floor = torch.Tensor(semantic_observation==2)
+        obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
+        wall  = torch.Tensor(np.isin(semantic_observation, obstacles))
+
+        walkable = np.uint8([2])
+        floor = torch.Tensor(np.isin(semantic_observation, walkable))
+
         return torch.stack([wall, floor], dim=-1)
 
     def __getitem__(self, idx):
+        if not self.init:
+            self._init()
+
         rgb = 0
         if len(self.imgs) > idx and self.rgb:
-            rgb    = torch.Tensor(np.uint8(Image.open(self.imgs[idx])))
+            rgb    = torch.Tensor(cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED))
+            #rgb    = torch.Tensor(np.uint8(Image.open(self.imgs[idx])))
 
         seg = 0
         if len(self.segs) > idx and self.semantic:

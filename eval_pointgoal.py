@@ -60,7 +60,6 @@ if __name__ == '__main__':
     summary = defaultdict(list)
     dfgs = []
 
-    task = get_model_args(model_path, 'teacher_args')['task']
     env = get_env(model_path, parsed.proxy, parsed.scene, rnn=parsed.rnn)
     for ep in range(parsed.num_episodes):
         print(f'[!] Start Episode {ep:06}')
