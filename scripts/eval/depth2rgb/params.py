@@ -7,7 +7,7 @@ scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/hab
 for scene in scenes:
     # train/test/val for MP3D, save RGB + semantic
     job = f"""python eval_hc.py \\
-            --model /scratch/cluster/nimit/wandb/run-20200427_192548-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.0001-5e-05-v4.27/model_050.t7 \\
+            --model /scratch/cluster/nimit/wandb/run-20200427_224755-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.001-5e-05-v4.27/model_040.t7 \\
             --scene {scene}
     """
 

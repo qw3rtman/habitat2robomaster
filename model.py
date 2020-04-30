@@ -7,10 +7,7 @@ from gym import spaces
 
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from habitat_baselines.rl.ddppo.policy import resnet
-from habitat_baselines.common.utils import CategoricalNet
-
 from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
-from habitat_baselines.common.utils import batch_obs
 
 from habitat_wrapper import MODALITIES
 
@@ -136,7 +133,7 @@ class ConditionalStateEncoderImitation(nn.Module):
         self.hidden_states = torch.zeros(self.actor_critic.net.num_recurrent_layers, self.batch_size, 512).to(self.device)
 
     def forward(self, x):
-        assert x[0].shape[0] == self.batch_size
+        #assert x[0].shape[0] == self.batch_size
         # B x ...
         target, direction, prev_action, mask = x
         batch = {self.target: target, 'pointgoal_with_gps_compass': direction}

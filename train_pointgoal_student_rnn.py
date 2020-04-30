@@ -2,23 +2,27 @@ import argparse
 import time
 from collections import defaultdict
 import shutil
+import gc
+import time
 
-from pathlib import Path
-
-import wandb
 import tqdm
-import numpy as np
-import torch
-import torchvision
 import yaml
+import wandb
+import torch
+from torch.nn.utils.rnn import pad_sequence
+import numpy as np
+import torchvision
 import pandas as pd
+from pathlib import Path
 import plotly.graph_objects as go
-
 from PIL import Image, ImageDraw, ImageFont
 
 from model import get_model
 from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, MODALITIES, Rollout, get_episode, save_episode
+
+import cProfile
+from pytorch_memlab import profile
 
 all_success = []
 all_spl = []
@@ -97,11 +101,9 @@ def _get_hist2d(x, y):
 
     return fig
 
-def pass_single(net, criterion, rgb, seg, action, meta, config, optim=None):
-    if config['student_args']['target'] == 'semantic':
-        target = seg.to(config['device'])
-    else:
-        target = rgb.to(config['device'])
+
+def pass_single(net, criterion, target, action, meta, config, optim=None):
+    target = target.to(config['device'])
     action = action.to(config['device'])
     meta = meta.to(config['device'])
 
@@ -115,85 +117,105 @@ def pass_single(net, criterion, rgb, seg, action, meta, config, optim=None):
 
     return loss.mean().item()
 
-def pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=None):
+
+def pass_sequence_tbptt(net, criterion, target, action, prev_action, meta, mask, config, optim=None):
+    # NOTE: k1-k2 backprop, then k2 tbptt
+    k1 = np.random.randint(4, 6) # frequency of TBPTT
+    k2 = np.random.randint(2, 4) # length of TBPTT
+
+    pass
+
+""" chunk_sizes ------------------------------------------------------*
+    c1: chunk size; graphs, hidden states, etc. must fit in memory    |
+    c2: frequency of moving to GPU; i.e: number of batched-timesteps """
+chunk_sizes = {
+    'GeForce GTX 1080': { # 8 GB
+        16:  (12, 250), # whole sequence can fit
+        32:  (9, 54),
+        64:  (4, 16), # 
+        128: (2, 16),  # 263.42 img/sec
+    },
+    'GeForce GTX 1080 Ti': { # 11 GB
+        64:  (5, 20),
+        128: (3, 24)
+    }
+}
+
+
+def pass_sequence_backprop(net, criterion, target, action, prev_action, meta, mask, config, optim=None):
+    c1, c2 = chunk_sizes[config['gpu']][net.batch_size]
+
+    sequence_loss, chunk_loss = 0, 0
+    for t in range(target.shape[0]):
+        print(f't={t}')
+        optim.zero_grad()
+
+        if t % c2 == 0:
+            if t > 0:
+                _target.detach_()
+                del _target
+                gc.collect()
+                torch.cuda.empty_cache()
+            # (S x B x 256 x 256 x 3) x 4 bytes => 0.79 MB per batch-timestep
+            _target = target[t:t+c2].to(config['device'], non_blocking=True)
+
+        _action = net((_target[t%c2], meta[t], prev_action[t], mask[t]))
+
+        loss = criterion(_action, action[t])
+        chunk_loss += loss
+
+        net.hidden_states.detach_()
+        if t % c1 == 0: # how many 
+            chunk_loss.backward()
+            optim.step()
+
+            chunk_loss.detach_() # free memory
+            del chunk_loss
+            gc.collect()
+            torch.cuda.empty_cache()
+            chunk_loss = 0
+
+        sequence_loss += loss.item()
+
+    # cleanup; has the accidential side-effect: last few steps have larger step
+    if chunk_loss != 0:
+        optim.zero_grad()
+        chunk_loss.backward()
+        optim.step()
+        chunk_loss.detach_()
+
+    # just slows things down
+    target.detach_()
+    del target
+    gc.collect()
+
+    return sequence_loss / mask.sum().item() # average over all real batch-sequence elements
+
+
+def pass_sequence(net, criterion, target, action, prev_action, meta, mask, config, optim=None):
     net.clean() # start episode!
+    net.hidden_states.detach_()
 
-    method = config['student_args']['method']
-    if method == 'tbptt':
-        #k1 = 20
-        #k2 = 10
-        # NOTE: k1-k2 backprop, then k2 tbptt
-        k1 = np.random.randint(4, 6) # frequency of TBPTT
-        k2 = np.random.randint(2, 4) # length of TBPTT
+    target_batch = pad_sequence(target)
+    print('pass_sequence')
+    print(mask.sum().item(), target_batch.shape)
 
-    if config['student_args']['target'] == 'semantic':
-        target = seg.to(config['device'])
-    else:
-        target = rgb.to(config['device'])
     action = action.to(config['device'])
     prev_action = prev_action.to(config['device'])
     meta = meta.to(config['device'])
     mask = mask.to(config['device'])
 
-    max_sequence_length = target.shape[0]
-    # NOTE: prevent out of memory; batch_size=8 can do 60 on 1080 Ti,
-    #                              batch_size=4 can do 83 on 1080, scales linearly
-    total_memory = torch.cuda.get_device_properties(config['device']).total_memory
-    if total_memory > 9e9: # 1080 Ti (11718230016)
-        sequence_length_capacity = int((240//config['data_args']['batch_size']) - 10)
-    else: #                  1080    (8513978368)
-        sequence_length_capacity = int((200//config['data_args']['batch_size']) - 10)
-    #print(f'sequence length capacity: {sequence_length_capacity}')
+    method = config['student_args']['method']
+    if method == 'backprop':
+        return pass_sequence_backprop(net, criterion, target_batch, action, prev_action, meta, mask, config, optim)
+    elif method == 'tbptt':
+        return pass_sequence_tbptt(net, criterion, target_batch, action, prev_action, meta, mask, config, optim)
 
-    tbptt = method in ['tbptt', 'wwtbptt']
-    if method == 'tbptt':
-        truncate_indices = np.arange(0, target.shape[0])
-        indices = np.where((truncate_indices % k1 == k2)|(truncate_indices % k1 == 0))[0]
-    elif method == 'wwtbptt': # https://arxiv.org/abs/1702.07600
-        window_start = np.random.randint(max_sequence_length * 0.8)
-        window_end = np.random.randint(window_start, min(window_start+20, max_sequence_length))
-        indices = [window_start, window_end]
-        with torch.no_grad(): # move to start of window
-            for t in range(window_start):
-                net((target[t], meta[t], prev_action[t], mask[t]))
-    else:
-        indices = range(0, max_sequence_length, sequence_length_capacity) # chunking
 
-    sequence_loss = 0
-    for i, start in enumerate(indices):
-        if method in ['tbptt', 'wwtbptt']:
-            end = indices[i+1] if i+1 < len(indices) else min(start+20, max_sequence_length)
-            if 0 in action[start:end]: # we really want to capture the closing move
-                tbptt = True
-        else:
-            end = min(start+sequence_length_capacity, max_sequence_length)
-
-        chunk_loss = 0
-        net.hidden_states.detach_()
-        for t in range(start, end):
-            #alloc = torch.cuda.memory_allocated(0)
-            #print(f's={t}, alloc={alloc}, free={total_memory-alloc}, tbptt={tbptt}')
-            _action = net((target[t], meta[t], prev_action[t], mask[t]))
-
-            loss = criterion(_action, action[t])
-            chunk_loss += loss
-            if not tbptt:
-                net.hidden_states.detach_()
-
-        if optim and hasattr(chunk_loss, 'backward') and chunk_loss != 0:
-            chunk_loss.backward()
-            optim.step()
-            optim.zero_grad()
-
-        if hasattr(chunk_loss, 'backward') and chunk_loss != 0:
-            chunk_loss.detach_() # free memory
-            sequence_loss += chunk_loss.item()
-
-        if method not in ['tbptt', 'wwtbptt']:
-            tbptt = not tbptt
-
-    return sequence_loss / max_sequence_length # loss mean
-
+def get_target(rgb, seg, config):
+    if config['student_args']['target'] == 'semantic':
+        return seg
+    return rgb
 
 def validate(net, env, data, config):
     NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ = rollout_freq[config['data_args']['scene']]
@@ -210,20 +232,15 @@ def validate(net, env, data, config):
     for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
             rgb, _, seg, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, rgb, seg, action, meta, config, optim=None)
+            loss_mean = pass_single(net, criterion, get_target(rgb, seg, config), action, meta, config, optim=None)
         else:
             rgb, seg, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=None)
+            loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=None)
         losses.append(loss_mean)
-
-        if config['student_args']['target'] == 'semantic':
-            num_images = np.prod(seg.shape[:-3])
-        else:
-            num_images = np.prod(rgb.shape[:-3])
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': num_images / (time.time() - tick)
+            'images_per_second': mask.sum().item() / (time.time() - tick)
         }
 
         wandb.log(
@@ -366,39 +383,33 @@ def validate(net, env, data, config):
 def train(net, env, data, optim, config):
     net.train()
     net.batch_size = config['data_args']['batch_size']
-    env.mode = 'teacher'
+    #env.mode = 'teacher'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
     tick = time.time()
 
     for i, x in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
-        # rgb.shape
-        # sequence, batch, ...
-
         if config['student_args']['method'] == 'feedforward':
             rgb, _, seg, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, rgb, seg, action, meta, config, optim=optim)
+            loss_mean = pass_single(net, criterion, get_target(rgb, seg, config), action, meta, config, optim=optim)
         else:
             rgb, seg, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, rgb, seg, action, prev_action, meta, mask, config, optim=optim)
+            loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=optim)
+
         losses.append(loss_mean)
-
-        wandb.run.summary['step'] += 1
-
-        if config['student_args']['target'] == 'semantic':
-            num_images = np.prod(seg.shape[:-3])
-        else:
-            num_images = np.prod(rgb.shape[:-3])
+        #wandb.run.summary['step'] += 1
 
         metrics = {
             'loss': loss_mean,
-            'images_per_second': num_images / (time.time() - tick)
+            'images_per_second': mask.sum().item() / (time.time() - tick)
         }
 
+        """
         wandb.log(
                 {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
+        """
 
         tick = time.time()
 
@@ -496,7 +507,7 @@ if __name__ == '__main__':
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
-    parser.add_argument('--method', type=str, choices=['feedforward', 'backprop', 'tbptt', 'wwtbptt'], default='backprop', required=True)
+    parser.add_argument('--method', type=str, choices=['feedforward', 'backprop', 'tbptt'], default='backprop', required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -530,6 +541,7 @@ if __name__ == '__main__':
             'checkpoint_dir': checkpoint_dir,
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+            'gpu': torch.cuda.get_device_name(0),
 
             'teacher_args': {
                 'task': parsed.teacher_task,
@@ -546,7 +558,7 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
-                'num_workers': 1 if parsed.method != 'feedforward' else 4,
+                'num_workers': 8 if parsed.method != 'feedforward' else 4,
 
                 'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,

@@ -12,7 +12,7 @@ for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth
                 for lr in [1e-3, 1e-4]:
                     for weight_decay in [5e-4, 5e-5]:
                         job = f"""python train_pointgoal_student_rnn.py \\
-    --description {unique} \\
+    --description {unique}-TESTING \\
     --max_epoch 200 \\
     --resnet_model {resnet_model} \\
     --dataset_dir {dataset_dir} \\

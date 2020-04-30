@@ -3,7 +3,7 @@ import torch
 import cv2
 import pandas as pd
 from torchvision import transforms
-from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from torch.utils.data import DataLoader
 from pyquaternion import Quaternion
 from pathlib import Path
@@ -12,14 +12,16 @@ from joblib import Memory
 import argparse
 from operator import itemgetter
 from itertools import repeat
+from collections import OrderedDict
 import subprocess
+import random
 import time
 
 from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
 
-memory = Memory('/scratch/cluster/nimit/data/cache', verbose=0)
+memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, rgb=True, semantic=True, **kwargs):
     """
         * shared memory can be a bottleneck on clusters, num_workers=0 is fast enough
@@ -32,7 +34,12 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            data.append(HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic))
+            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic)
+            # bounds memory usage by (250 x B x 256 x 256 x 3) x 4 bytes
+            # i.e: 0.20 GB per batch dimension
+            if len(episode) <= 250:
+                data.append(episode)
+
             if i % 500 == 0:
                 print(f'[{i:05}/{num_episodes}]')
 
@@ -50,16 +57,50 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
         if dagger:
             return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
         elif rnn:
-            return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes) # samples == episodes
+            bucket_batch_sampler = BucketBatchSampler(data, batch_size)
+            return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes, batch_sampler=bucket_batch_sampler) # samples == episodes
         else:
             return StaticWrap(data, batch_size, 25000 if is_train else 2500, num_workers)                                          # samples == # steps
 
     return make_dataset(True), make_dataset(False)
 
 
+class BucketBatchSampler(torch.utils.data.sampler.Sampler):
+    def __init__(self, episodes, batch_size):
+        self.batch_size = batch_size
+
+        buckets = OrderedDict() # len -> [Episode, Episode, ...]
+        for idx, episode in enumerate(episodes):
+            length = len(episode)
+            if length not in buckets:
+                buckets[length] = []
+            buckets[length].append(idx)
+
+        idx, self.batches = 0, [0] * len(episodes)
+        for indices in buckets.values():
+            random.shuffle(indices)
+            self.batches[idx:idx+len(indices)] = indices
+            idx += len(indices)
+
+    def __len__(self):
+        return len(self.batches) // self.batch_size
+
+    def __iter__(self):
+        start = time.time()
+        for _ in range(len(self)):
+            print(f'sample start')
+            start_idx = int((len(self.batches) - self.batch_size) * random.random())
+            batch = self.batches[start_idx:start_idx+self.batch_size]
+            random.shuffle(batch)
+
+            yield batch
+            print(f'sample end', time.time()-start)
+            start = time.time()
+
 def collate_episodes(episodes):
     rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
+        print(episode.imgs[0])
         if not episode.init:
             episode._init()
 
@@ -78,24 +119,31 @@ def collate_episodes(episodes):
         if episode.semantic:
             _segs = torch.empty((len(episode), 256, 256, HabitatDataset.NUM_SEMANTIC_CLASSES))
 
+        start = time.time()
         for t, step in enumerate(episode):
             rgb, _, seg, action, _, _, prev_action = step
             if type(rgb) != int:
-                _rgbs[i] = rgb
+                _rgbs[t] = torch.from_numpy(rgb).float()
             if type(seg) != int:
-                _segs[i] = seg
+                _segs[t] = torch.from_numpy(seg).float()
+
+            worker_info = torch.utils.data.get_worker_info()
+            print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] [{t:03}/{len(episode)}] {(time.time()-start):.02f}')
+            start = time.time()
 
         if episode.rgb:
             rgbs.append(_rgbs)
         if episode.semantic:
             segs.append(_segs)
 
+    """
     rgb_batch = 0
     if len(rgbs) > 0:
         rgb_batch = pad_sequence(rgbs)
     seg_batch = 0
     if len(segs) > 0:
         seg_batch = pad_sequence(segs)
+    """
 
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
@@ -106,7 +154,10 @@ def collate_episodes(episodes):
     for episode, index in enumerate(indices):
         mask[index.item(), episode] = 1.
 
-    return rgb_batch, seg_batch, action_batch, prev_action_batch, meta_batch, mask
+    #lengths = torch.Tensor([len(episode) for episode in episodes])
+    #pack_padded_sequence(rgb_batch, lengths, enforce_sorted=False)
+
+    return rgbs, segs, action_batch, prev_action_batch, meta_batch, mask
 
 
 class EpisodeDataset(torch.utils.data.Dataset):
@@ -120,6 +171,8 @@ class EpisodeDataset(torch.utils.data.Dataset):
         return self.episodes[idx]
 
 
+obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
+walkable = np.uint8([2])
 class HabitatDataset(torch.utils.data.Dataset):
     def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False, rgb=True, semantic=True):
         if not isinstance(episode_dir, Path):
@@ -179,7 +232,8 @@ class HabitatDataset(torch.utils.data.Dataset):
             #return int(subprocess.check_output(f'tail -n1 {str(self.episode_dir) + "/episode.csv"}', shell=True).split(b',')[0]) + 1
             #return int(subprocess.check_output(f'wc -l {str(self.episode_dir) + "/episode.csv"}', shell=True).split()[0]) - 1
 
-        return self.actions.shape[0]
+        #return self.actions.shape[0]
+        return max(len(self.imgs), len(self.segs))
 
     def _get_direction(self, start, end=None):
         source_position = self.positions[start]
@@ -201,13 +255,11 @@ class HabitatDataset(torch.utils.data.Dataset):
     NUM_SEMANTIC_CLASSES = 2
     @staticmethod
     def _make_semantic(semantic_observation):
-        obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
-        wall  = torch.Tensor(np.isin(semantic_observation, obstacles))
+        wall  = np.isin(semantic_observation, obstacles)
+        floor = np.isin(semantic_observation, walkable)
 
-        walkable = np.uint8([2])
-        floor = torch.Tensor(np.isin(semantic_observation, walkable))
-
-        return torch.stack([wall, floor], dim=-1)
+        print(np.unique(wall), np.unique(floor))
+        return np.stack([wall, floor], axis=-1)
 
     def __getitem__(self, idx):
         if not self.init:
@@ -215,8 +267,7 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         rgb = 0
         if len(self.imgs) > idx and self.rgb:
-            rgb    = torch.Tensor(cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED))
-            #rgb    = torch.Tensor(Image.open(self.imgs[idx]))
+            rgb    = cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED)
 
         seg = 0
         if len(self.segs) > idx and self.semantic:

@@ -10,7 +10,6 @@ SUBMIT = """Executable = run_{uuid}.sh
 +ProjectDescription="Training model"
 +GPUJob=true
 
-request_memory = 24 GB
 Requirements=(TARGET.GPUSlot && Eldar == True)
 Rank=memory
 Universe=vanilla
