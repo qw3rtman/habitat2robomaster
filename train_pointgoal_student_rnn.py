@@ -130,25 +130,31 @@ def pass_sequence_tbptt(net, criterion, target, action, prev_action, meta, mask,
     c2: frequency of moving to GPU; i.e: number of batched-timesteps """
 chunk_sizes = {
     'GeForce GTX 1080': { # 8 GB
-        16:  (12, 250), # whole sequence can fit
-        32:  (9, 54),
-        64:  (4, 16), # 
-        128: (2, 16),  # 263.42 img/sec
+        8:   (8, 120),
+        16:  (6, 100), # whole sequence can fit
+        32:  (4, 50),
+        64:  (3, 6), # 
+        128: (2, 2),  # 263.42 img/sec
     },
     'GeForce GTX 1080 Ti': { # 11 GB
-        64:  (5, 20),
-        128: (3, 24)
+        8:   (10, 120),
+        16:  (8, 100),
+        32:  (6, 50),
+        64:  (4, 6),
+        128: (2, 2)
     }
 }
 
 
 def pass_sequence_backprop(net, criterion, target, action, prev_action, meta, mask, config, optim=None):
     c1, c2 = chunk_sizes[config['gpu']][net.batch_size]
+    #print(f'c1={c1} c2={c2}')
 
     sequence_loss, chunk_loss = 0, 0
     for t in range(target.shape[0]):
-        print(f't={t}')
-        optim.zero_grad()
+        #print(f't={t}')
+        if optim:
+            optim.zero_grad()
 
         if t % c2 == 0:
             if t > 0:
@@ -166,8 +172,9 @@ def pass_sequence_backprop(net, criterion, target, action, prev_action, meta, ma
 
         net.hidden_states.detach_()
         if t % c1 == 0: # how many 
-            chunk_loss.backward()
-            optim.step()
+            if optim:
+                chunk_loss.backward()
+                optim.step()
 
             chunk_loss.detach_() # free memory
             del chunk_loss
@@ -179,9 +186,10 @@ def pass_sequence_backprop(net, criterion, target, action, prev_action, meta, ma
 
     # cleanup; has the accidential side-effect: last few steps have larger step
     if chunk_loss != 0:
-        optim.zero_grad()
-        chunk_loss.backward()
-        optim.step()
+        if optim:
+            optim.zero_grad()
+            chunk_loss.backward()
+            optim.step()
         chunk_loss.detach_()
 
     # just slows things down
@@ -197,8 +205,8 @@ def pass_sequence(net, criterion, target, action, prev_action, meta, mask, confi
     net.hidden_states.detach_()
 
     target_batch = pad_sequence(target)
-    print('pass_sequence')
-    print(mask.sum().item(), target_batch.shape)
+    #print('pass_sequence')
+    #print(mask.sum().item(), target_batch.shape)
 
     action = action.to(config['device'])
     prev_action = prev_action.to(config['device'])
@@ -222,7 +230,7 @@ def validate(net, env, data, config):
 
     net.eval()
     net.batch_size = config['data_args']['batch_size']
-    env.mode = 'student'
+    #env.mode = 'student'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
@@ -236,8 +244,8 @@ def validate(net, env, data, config):
         else:
             rgb, seg, action, prev_action, meta, mask = x
             loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=None)
-        losses.append(loss_mean)
 
+        losses.append(loss_mean)
         metrics = {
             'loss': loss_mean,
             'images_per_second': mask.sum().item() / (time.time() - tick)
@@ -253,7 +261,8 @@ def validate(net, env, data, config):
     # NOTE: slide back iterator to 1st episode so we always validate over same episodes
     # castle: 50 val episodes
     # office: 495 ...
-    env.env.episode_iterator._iterator = iter(env.env.episode_iterator.episodes)
+    #env.env.episode_iterator._iterator = iter(env.env.episode_iterator.episodes)
+    """
     net.batch_size = 1
     if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
         distance_to_goal = np.empty(NUM_EPISODES)
@@ -376,6 +385,7 @@ def validate(net, env, data, config):
             wandb.log(
                     {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
                     step=wandb.run.summary['step'])
+        """
 
     return np.mean(losses)
 
@@ -398,18 +408,15 @@ def train(net, env, data, optim, config):
             loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=optim)
 
         losses.append(loss_mean)
-        #wandb.run.summary['step'] += 1
-
+        wandb.run.summary['step'] += 1
         metrics = {
             'loss': loss_mean,
             'images_per_second': mask.sum().item() / (time.time() - tick)
         }
 
-        """
         wandb.log(
                 {('%s/%s' % ('train', k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
-        """
 
         tick = time.time()
 
@@ -441,7 +448,8 @@ def main(config):
     sensors = ['RGB_SENSOR']
     if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
         sensors.append('SEMANTIC_SENSOR')
-    env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors)
+    env_val = None
+    #env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors, gpu_id=1)
 
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -558,7 +566,7 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
-                'num_workers': 8 if parsed.method != 'feedforward' else 4,
+                'num_workers': 1 if parsed.method != 'feedforward' else 4,
 
                 'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,

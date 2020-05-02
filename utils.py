@@ -26,11 +26,11 @@ def dataloader(data, batch_size, num_workers, collate_fn=None, batch_sampler=Non
 class StaticWrap(object):
     def __init__(self, data, batch_size, samples, num_workers, collate_fn=None, batch_sampler=None):
         if collate_fn:
-            self.loader = dataloader(data, batch_size, num_workers, collate_fn, batch_sampler)
+            loader = dataloader(data, batch_size, num_workers, collate_fn, batch_sampler)
         else:
-            self.loader = dataloader(torch.utils.data.ConcatDataset(data), batch_size, num_workers)
-        
-        self.data = repeater(self.loader)
+            loader = dataloader(torch.utils.data.ConcatDataset(data), batch_size, num_workers)
+
+        self.data = repeater(loader)
         self.iterator = iter(self.data)
 
         self.batch_size = batch_size

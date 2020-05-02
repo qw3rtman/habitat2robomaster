@@ -13,6 +13,9 @@ root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d'
 
 # train/test/val for MP3D, save RGB + semantic
 for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').glob('mp3d_*'):
+    if split_f.is_dir():
+        continue
+
     split = split_f.stem.split('_')[1]
     with open(split_f, 'r') as f:
         scenes = [line.rstrip() for line in f]

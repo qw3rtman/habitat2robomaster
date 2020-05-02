@@ -5,13 +5,14 @@ from PIL import Image
 import pandas as pd
 from torchvision import transforms
 from pyquaternion import Quaternion
+from numcodecs import Blosc
+import zarr
 
 from pathlib import Path
 import argparse
 import time
 import shutil
 from collections import deque, defaultdict
-import quaternion
 
 from habitat_dataset import HabitatDataset
 
@@ -66,7 +67,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert mode in MODES
@@ -110,7 +111,7 @@ class Rollout:
         env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle
         env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
         env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
-        env_config.DATASET.CONTENT_SCENES               = scenes
+        env_config.DATASET.CONTENT_SCENES               = [scenes]
         env_config.DATASET.DATA_PATH                    = DATAPATH[dataset]
         env_config.DATASET.SCENES_DIR                   = '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
 
@@ -286,6 +287,8 @@ def get_episode(env):
 def save_episode(env, episode_dir):
     stats = list()
 
+    rgbs, segs = [], []
+
     lwns, longest, length = 0, 0, 0
     for i, step in enumerate(get_episode(env)):
         length += 1
@@ -301,10 +304,12 @@ def save_episode(env, episode_dir):
         lwns = max(lwns, longest)
 
         if 'rgb' in step and step['rgb'] is not None:
-            Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
-        #np.save(episode_dir / f'depth_{i:04}', step['depth'])
+            rgbs.append(step['rgb'])
+            #Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
         if 'semantic' in step and step['semantic'] is not None:
-            np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
+            segs.append(step['semantic'])
+            #np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
+
         if env.mode == 'both':
             action = step['action']['teacher']
         else:
@@ -324,6 +329,16 @@ def save_episode(env, episode_dir):
             'k': step['rotation'][2],
             'l': step['rotation'][3]
         })
+
+    if len(rgbs) > 0 :
+        compressor = Blosc(cname='zstd', clevel=3) # ~81.3 kb per sample
+        z = zarr.open(str(episode_dir / 'rgb'), mode='w', shape=(len(rgbs), 256, 256, 3), chunks=False, dtype='u1', compressor=compressor)
+        z[:] = np.array(rgbs)
+
+    if len(segs) > 0:
+        compressor = Blosc(cname='zstd', clevel=3) # ~2.85 kb per sample
+        z = zarr.open(str(episode_dir / 'semantic'), mode='w', shape=(len(segs), 256, 256), chunks=False, dtype='u1', compressor=compressor)
+        z[:] = np.array(segs)
 
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 

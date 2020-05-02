@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from pyquaternion import Quaternion
 from pathlib import Path
 from joblib import Memory
+import zarr
 
 import argparse
 from operator import itemgetter
@@ -23,9 +24,6 @@ ACTIONS = torch.eye(4)
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, rgb=True, semantic=True, **kwargs):
-    """
-        * shared memory can be a bottleneck on clusters, num_workers=0 is fast enough
-    """
 
     @memory.cache
     def get_episodes(split_dir):
@@ -50,9 +48,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         start = time.time()
         data = get_episodes(Path(dataset_dir) / split)
-        print(time.time()-start)
-
-        print('%s: %d' % (split, len(data)))
+        print(f'{split}: {len(data)} in {time.time()-start}s')
 
         if dagger:
             return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
@@ -86,24 +82,16 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
         return len(self.batches) // self.batch_size
 
     def __iter__(self):
-        start = time.time()
         for _ in range(len(self)):
-            print(f'sample start')
             start_idx = int((len(self.batches) - self.batch_size) * random.random())
             batch = self.batches[start_idx:start_idx+self.batch_size]
             random.shuffle(batch)
 
             yield batch
-            print(f'sample end', time.time()-start)
-            start = time.time()
 
 def collate_episodes(episodes):
     rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
     for i, episode in enumerate(episodes):
-        print(episode.imgs[0])
-        if not episode.init:
-            episode._init()
-
         actions.append(episode.actions)
 
         _prev_actions = torch.empty_like(episode.actions)
@@ -113,37 +101,14 @@ def collate_episodes(episodes):
 
         metas.append(episode.meta)
 
-        if episode.rgb:
-            _rgbs = torch.empty((len(episode), 256, 256, 3))
-
-        if episode.semantic:
-            _segs = torch.empty((len(episode), 256, 256, HabitatDataset.NUM_SEMANTIC_CLASSES))
-
         start = time.time()
-        for t, step in enumerate(episode):
-            rgb, _, seg, action, _, _, prev_action = step
-            if type(rgb) != int:
-                _rgbs[t] = torch.from_numpy(rgb).float()
-            if type(seg) != int:
-                _segs[t] = torch.from_numpy(seg).float()
-
-            worker_info = torch.utils.data.get_worker_info()
-            print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] [{t:03}/{len(episode)}] {(time.time()-start):.02f}')
-            start = time.time()
-
+        worker_info = torch.utils.data.get_worker_info()
         if episode.rgb:
-            rgbs.append(_rgbs)
-        if episode.semantic:
-            segs.append(_segs)
+            rgbs.append(torch.as_tensor(episode.get_rgb_sequence()).float())
 
-    """
-    rgb_batch = 0
-    if len(rgbs) > 0:
-        rgb_batch = pad_sequence(rgbs)
-    seg_batch = 0
-    if len(segs) > 0:
-        seg_batch = pad_sequence(segs)
-    """
+        if episode.semantic:
+            segs.append(seg_seq = torch.as_tensor(episode.get_semantic_sequence()).float())
+        #print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] {(time.time()-start):.02f}')
 
     action_batch = pad_sequence(actions)
     prev_action_batch = pad_sequence(prev_actions)
@@ -185,28 +150,6 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.interpolate = interpolate
         self.augmentation = augmentation
 
-        self.init = False
-        self._init()
-
-        # DAgger
-        self.episode_idx = 0
-        self.loss = 0.0 # kick out these seeded ones first
-        self.is_seed = is_seed
-
-    def _init(self):
-        if self.init:
-            return
-
-        self.imgs = []
-        if self.rgb:
-            self.imgs = [str(img) for img in sorted(self.episode_dir.glob('rgb_*.png'))]
-            assert len(self.imgs) > 0
-
-        self.segs = []
-        if self.semantic:
-            self.segs = [str(seg) for seg in sorted(self.episode_dir.glob('seg_*.npz'))]
-            assert len(self.segs) > 0
-
         with open(self.episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
         x = np.genfromtxt(measurements, delimiter=',', dtype=np.float32)
@@ -224,16 +167,20 @@ class HabitatDataset(torch.utils.data.Dataset):
         for i in range(self.actions.shape[0]):
             self.meta[i] = self._get_direction(i)
 
-        self.init = True
+        if self.rgb:
+            assert (self.episode_dir / 'rgb').exists()
+            self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+
+        if self.semantic:
+            assert (self.episode_dir / 'semantic').exists()
+
+        # DAgger
+        self.episode_idx = 0
+        self.loss = 0.0 # kick out these seeded ones first
+        self.is_seed = is_seed
 
     def __len__(self):
-        if not self.init:
-            return 1 # doesn't matter in first phase
-            #return int(subprocess.check_output(f'tail -n1 {str(self.episode_dir) + "/episode.csv"}', shell=True).split(b',')[0]) + 1
-            #return int(subprocess.check_output(f'wc -l {str(self.episode_dir) + "/episode.csv"}', shell=True).split()[0]) - 1
-
-        #return self.actions.shape[0]
-        return max(len(self.imgs), len(self.segs))
+        return self.actions.shape[0]
 
     def _get_direction(self, start, end=None):
         source_position = self.positions[start]
@@ -258,20 +205,35 @@ class HabitatDataset(torch.utils.data.Dataset):
         wall  = np.isin(semantic_observation, obstacles)
         floor = np.isin(semantic_observation, walkable)
 
-        print(np.unique(wall), np.unique(floor))
         return np.stack([wall, floor], axis=-1)
 
+    def get_rgb_sequence(self):
+        if not self.rgb_f:
+            self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+
+        return self.rgb_f[:]
+
+    def get_semantic_sequence(self):
+        if not self.semantic_f:
+            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
+
+        return self.semantic_f[:]
+
     def __getitem__(self, idx):
-        if not self.init:
-            self._init()
-
         rgb = 0
-        if len(self.imgs) > idx and self.rgb:
-            rgb    = cv2.imread(str(self.imgs[idx]), cv2.IMREAD_UNCHANGED)
+        if self.rgb:
+            if not self.rgb_f:
+                self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+            rgb = self.rgb_f[idx]
 
+        """
         seg = 0
-        if len(self.segs) > idx and self.semantic:
-            seg    = HabitatDataset._make_semantic(np.load(self.segs[idx])['semantic'])
+        if self.semantic:
+            #_segs = torch.empty((len(episode), 256, 256, HabitatDataset.NUM_SEMANTIC_CLASSES))
+            if not self.semantic_f:
+                self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
+            seg = HabitatDataset._make_semantic(self.semantic_f)
+        """
 
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)

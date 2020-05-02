@@ -12,13 +12,7 @@ for split_f in Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits').g
     with open(split_f, 'r') as f:
         scenes = [line.rstrip() for line in f]
     for scene in scenes:
-        d = list(Path(root / f'{scene}-{split}').iterdir())[0]
-        dt = datetime.datetime.fromtimestamp(d.stat().st_mtime)
-        if dt.day == 30:
-            continue
-
-        print(dt)
-        job = f"""python pngs2zarr.py \\
+        job = f"""python z2zcompress.py \\
             --scene_dir {root}/{scene}-{split} \\
             --rgb
         """

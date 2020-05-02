@@ -85,7 +85,8 @@ class PPOAgent(Agent):
                 num_recurrent_layers=2,#self.config.RL.DDPPO.num_recurrent_layers,
                 backbone=resnet_model,#self.config.RL.DDPPO.backbone,
                 goal_sensor_uuid=self.goal_sensor_uuid,
-                normalize_visual_inputs=('rgb' in config.INPUT_TYPE)
+                normalize_visual_inputs=('rgb' in config.INPUT_TYPE),
+                input_channels=3 if 'rgb' in config.INPUT_TYPE else 1
                 #in self.envs.observation_spaces[0].spaces,
             )
         else: # PPO
