@@ -6,6 +6,7 @@ from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from torch.utils.data import DataLoader
 from rad import data_augs
+import imgaug.augmenters as iaa
 from pyquaternion import Quaternion
 from pathlib import Path
 from joblib import Memory
@@ -91,6 +92,8 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
             yield batch
 
 def collate_episodes(episodes):
+    aug = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
+
     depths, rgbs, segs, actions, prev_actions, metas = [], [], [], [], [], []
     for i, episode in enumerate(episodes):
         flip_aug = np.random.random() < 0.50
@@ -114,20 +117,28 @@ def collate_episodes(episodes):
         if episode.rgb:
             rgb_sequence = episode.get_rgb_sequence()
 
-            # visual augmentation
+            # visual augmentation (https://arxiv.org/pdf/2004.14990.pdf)
             # input: numpy T x H x W x C; i.e: T x 256 x 256 x 3
             # output: torch, same dims
             p = np.random.uniform(0., 1.)
             if p < 0.20: # random crop; ratio from RAD paper
-                rgb_sequence = data_augs.random_crop(rgb_sequence.transpose(0,3,1,2), out=216).transpose(0,2,3,1)
+                #print('random crop')
+                rgb_sequence = aug(images=rgb_sequence)
             elif p < 0.25: # random grayscale
+                #print('random grayscale')
                 rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
             elif p < 0.30: # random cutout; ratio from RAD paper
+                #print('random cutout')
                 rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
             elif p < 0.40: # random cutout color; ratio from RAD paper
+                #print('random cutout color')
                 rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
             elif p < 0.50: # color aug; slow, but apparently important
-                rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float))
+                #print('color jitter')
+                rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float)).permute(0,2,3,1)
+            else:
+                #print('none')
+                pass
 
             if flip_aug:
                 rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,)) # prevent -1 stride
@@ -244,7 +255,7 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return self.rgb_f[:]
 
-    NUM_SEMANTIC_CLASSES = 2
+    NUM_SEMANTIC_CLASSES = 40
     @staticmethod
     def _make_semantic(semantic_observation):
         wall  = np.isin(semantic_observation, obstacles)
