@@ -1,11 +1,7 @@
 import gzip
 import json
-import torch.multiprocessing as mp
-try:
-    mp.set_start_method('spawn')
-except RuntimeError:
-    pass
 
+import wandb
 import argparse
 from pathlib import Path
 from itertools import repeat
@@ -14,53 +10,104 @@ import gc
 
 import torch
 import pandas as pd
+import numpy as np
 import tqdm
 import yaml
+import plotly.graph_objects as go
+from PIL import Image, ImageDraw, ImageFont
 
 from habitat_wrapper import Rollout, get_episode, METRICS
 from model import get_model
 
-def _eval_scene(scene, parsed):
-    env = Rollout(**teacher_args, student=net, split='val_ddppo', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], scenes=scene)
+COLORS = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
+def get_fig(xy):
+    fig = go.Figure(data=[go.Box(y=y,
+        boxpoints='all',
+        boxmean=True,
+        jitter=0.1,
+        pointpos=-1.6,
+        name=f'{x}',
+        marker_color=COLORS[i%20]
+    ) for i, (x, y) in enumerate(xy.items())])
+    fig.update_layout(
+        xaxis=dict(title='Scene', showgrid=False, zeroline=False, dtick=1),
+        yaxis=dict(zeroline=False, gridcolor='white'),
+        paper_bgcolor='rgb(233,233,233)',
+        plot_bgcolor='rgb(233,233,233)',
+        showlegend=False
+    )
 
-    summary = defaultdict(float)
+    return fig
+
+NUM_EPISODES = 10
+
+all_success, all_spl, all_softspl, total = {}, {}, {}, 0
+def _eval_scene(scene, parsed):
+    global total
+
+    env = Rollout(**teacher_args, student=net, split=f'{parsed.split}_ddppo', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], scenes=scene)
+
     print(f'[!] Start {scene}')
-    for ep in range(10):
+    success = np.zeros(NUM_EPISODES)
+    spl = np.zeros(NUM_EPISODES)
+    softspl = np.zeros(NUM_EPISODES)
+
+    all_success[scene] = success
+    all_spl[scene] = spl
+    all_softspl[scene] = softspl
+
+    for ep in range(NUM_EPISODES):
+        total += 1
+
+        net.clean()
+        images = []
+
         for i, step in enumerate(get_episode(env)):
             if i == 0:
                 dtg = env.env.get_metrics()['distance_to_goal']
-            #print(f'[{i:03}] {scene}')
+
+            frame = Image.fromarray(step['rgb'])
+            draw = ImageDraw.Draw(frame)
+            font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
+            direction = env.get_direction()
+            draw.rectangle((0, 0, 255, 20), fill='black')
+            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
+
+            images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
         metrics = env.env.get_metrics()
-        for m, v in metrics.items():
-            if m in METRICS:
-                summary[m] += v
+        success[ep] = metrics['success']
+        spl[ep] = metrics['spl']
+        softspl[ep] = metrics['softspl']
 
-        print(f'[{ep+1}/10] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
+        #print(f'[{ep+1}/NUM_EPISODES] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
 
-    pd.DataFrame([summary]).to_csv(Path('/u/nimit/Documents/robomaster/habitat2robomaster/eval_results') / f'{scene}_summary.csv', index=False)
+        log = {f'{scene}_video': wandb.Video(np.array(images), fps=20, format='mp4'),
+                'success_mean': np.sum(np.concatenate([_success for _success in all_success.values()])) / total,
+                'spl_mean': np.sum(np.concatenate([_spl for _spl in all_spl.values()])) / total,
+                'softspl_mean': np.sum(np.concatenate([_softspl for _softspl in all_softspl.values()])) / total}
+        wandb.run.summary['episode'] += 1
+        wandb.log(
+                {('%s/%s' % ('val', k)): v for k, v in log.items()},
+                step=wandb.run.summary['episode'])
 
-    """
     env.env.close()
     del env
-    del net
-    gc.collect()
-    torch.cuda.empty_cache()
-    """
 
-def get_model_args(model, key):
-    return yaml.load((model.parent / 'config.yaml').read_text())[key]['value']
+def get_model_args(model, key=None):
+    config = yaml.load((model.parent / 'config.yaml').read_text())
+    if not key:
+        return config
+
+    return config[key]['value']
 
 if __name__ == '__main__':
-    mp.freeze_support()
-
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=Path, required=True)   # input
-    #parser.add_argument('--scene', required=True)
+    parser.add_argument('--model', type=Path, required=True)
+    parser.add_argument('--split', required=True)
     parsed = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
     teacher_args = get_model_args(parsed.model, 'teacher_args')
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
@@ -70,16 +117,20 @@ if __name__ == '__main__':
     net.batch_size=1
     net.eval()
 
-    scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/val_ddppo/content').glob('*.gz')]
+    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}"
+    wandb.init(project='pointgoal-rgb2depth-eval', config=get_model_args(parsed.model), id=run_name)
+    wandb.run.summary['episode'] = 0
+
+    scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')]
     with torch.no_grad():
         for scene in scenes:
             _eval_scene(scene, parsed)
 
-    """
-    with torch.no_grad():
-        with mp.Pool(2) as pool, tqdm.tqdm(total=len(scenes)) as pbar:
-            #for _ in pool.imap_unordered(_eval_scene, scenes):
-            for out in pool.starmap(_eval_scene, zip(scenes, repeat(parsed))):
-                out.get()
-                pbar.update()
-    """
+    log = {
+        'spl': get_fig(all_spl),
+        'softspl': get_fig(all_softspl)
+    }
+    wandb.run.summary['episode'] += 1
+    wandb.log(
+        {('%s/%s' % ('val', k)): v for k, v in log.items()},
+        step=wandb.run.summary['episode'])

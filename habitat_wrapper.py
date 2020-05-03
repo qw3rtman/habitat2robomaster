@@ -27,7 +27,7 @@ from gym.spaces import Box, Dict, Discrete
 TASKS = ['dontcrash', 'pointgoal', 'objectgoal']
 MODES = ['student', 'teacher', 'both']
 METRICS = ['success', 'spl', 'softspl', 'distance_to_goal']
-MODALITIES = ['rgb', 'depth', 'semantic']
+MODALITIES = ['depth', 'rgb', 'semantic']
 
 jitter_threshold = {
     'rgb': 1e-2,
@@ -67,7 +67,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert mode in MODES
@@ -108,7 +108,7 @@ class Rollout:
         env_config = get_config(CONFIGS['ddppo'])
         env_config.defrost()
 
-        env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle
+        env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle # NOTE: not working?
         env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
         env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
         env_config.DATASET.CONTENT_SCENES               = [scenes]
@@ -177,7 +177,7 @@ class Rollout:
         if self.proxy == 'semantic':
             proxy = HabitatDataset._make_semantic(self.observations[self.proxy]).unsqueeze(dim=0)
         else:
-            proxy = torch.Tensor(np.uint8(self.observations[self.proxy])).unsqueeze(dim=0)
+            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0)
         proxy = proxy.to(self.device)
 
         if self.task == 'dontcrash':
@@ -287,7 +287,7 @@ def get_episode(env):
 def save_episode(env, episode_dir):
     stats = list()
 
-    rgbs, segs = [], []
+    depths, rgbs, segs = [], [], []
 
     lwns, longest, length = 0, 0, 0
     for i, step in enumerate(get_episode(env)):
@@ -303,9 +303,13 @@ def save_episode(env, episode_dir):
 
         lwns = max(lwns, longest)
 
+        if 'depth' in step and step['depth'] is not None:
+            depths.append(step['depth'])
+
         if 'rgb' in step and step['rgb'] is not None:
             rgbs.append(step['rgb'])
             #Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
+
         if 'semantic' in step and step['semantic'] is not None:
             segs.append(step['semantic'])
             #np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
@@ -329,6 +333,11 @@ def save_episode(env, episode_dir):
             'k': step['rotation'][2],
             'l': step['rotation'][3]
         })
+
+    if len(depths) > 0:
+        compressor = Blosc(cname='zstd', clevel=3)
+        z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depths), 256, 256), chunks=False, dtype='f4', compressor=compressor)
+        z[:] = np.array(depths)[:,:,:,0] # squeeze
 
     if len(rgbs) > 0 :
         compressor = Blosc(cname='zstd', clevel=3) # ~81.3 kb per sample
@@ -366,6 +375,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', choices=DATAPATH.keys(), required=True)
     parser.add_argument('--scene', default='*')
     parser.add_argument('--split', required=True)
+    parser.add_argument('--depth', action='store_true')
     parser.add_argument('--rgb', action='store_true')
     parser.add_argument('--semantic', action='store_true')
     parser.add_argument('--num_frames', type=int)

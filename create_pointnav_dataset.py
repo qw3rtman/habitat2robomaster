@@ -16,7 +16,8 @@ NUM_EPISODES = int(5e2)
 GIBSON_QUALITY = Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits/gibson_splits/gibson_quality_ratings.csv')
 GIBSON_SPLITS = Path('/u/nimit/Documents/robomaster/habitat2robomaster/splits/gibson_splits/train_val_test_fullplus.csv')
 EPISODES_DIR = Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1')
-SPLIT = ''
+SCENE_SPLIT = ''
+EPISODE_SPLIT = ''
 
 def _generate_fn(scene):
     cfg = habitat.get_config()
@@ -40,7 +41,7 @@ def _generate_fn(scene):
 
     scene_key = scene.stem
     #out_file = f"./data/datasets/pointnav/gibson/v1/all/content/{scene_key}.json.gz"
-    out_file = EPISODES_DIR / f'{SPLIT}_ddppo' / 'content' / f'{scene_key}.json.gz'
+    out_file = EPISODES_DIR / f'{EPISODE_SPLIT}_ddppo' / 'content' / f'{scene_key}.json.gz'
     out_file.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(out_file, "wt") as f:
         f.write(dset.to_json())
@@ -48,10 +49,12 @@ def _generate_fn(scene):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--scenes_dir', type=Path, required=True)   # input
-    parser.add_argument('--split', required=True)
+    parser.add_argument('--scene_split', required=True)
+    parser.add_argument('--episode_split', required=True)
     parsed = parser.parse_args()
 
-    SPLIT = parsed.split
+    SCENE_SPLIT = parsed.scene_split
+    EPISODE_SPLIT = parsed.episode_split
 
     with open(GIBSON_QUALITY, 'r') as csv_f:
         quality = pd.read_csv(csv_f)
@@ -68,7 +71,7 @@ if __name__ == '__main__':
     two_plus_splits = splits.loc[splits['id'].isin(set(two_plus.scene_id))]
 
     # narrow those down to those from this split
-    split_scenes = two_plus_splits.loc[two_plus_splits[parsed.split] == 1].id
+    split_scenes = two_plus_splits.loc[two_plus_splits[parsed.scene_split] == 1].id
     scenes = [parsed.scenes_dir / f'{str.strip(split_scene)}.glb' for split_scene in split_scenes]
     print(scenes)
 
@@ -78,5 +81,5 @@ if __name__ == '__main__':
             pbar.update()
 
     #with gzip.open(f"./data/datasets/pointnav/gibson/v1/all/all.json.gz", "wt") as f:
-    with gzip.open(EPISODES_DIR / f'{SPLIT}_ddppo/{parsed.split}.json.gz', 'wt') as f:
+    with gzip.open(EPISODES_DIR / f'{EPISODE_SPLIT}_ddppo/{EPISODE_SPLIT}_ddppo.json.gz', 'wt') as f:
         json.dump(dict(episodes=[]), f)

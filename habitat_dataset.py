@@ -5,6 +5,7 @@ import pandas as pd
 from torchvision import transforms
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
 from torch.utils.data import DataLoader
+from rad import data_augs
 from pyquaternion import Quaternion
 from pathlib import Path
 from joblib import Memory
@@ -23,7 +24,7 @@ from utils import StaticWrap, DynamicWrap
 ACTIONS = torch.eye(4)
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, rgb=True, semantic=True, **kwargs):
+def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, depth=False, rgb=True, semantic=False, **kwargs):
 
     @memory.cache
     def get_episodes(split_dir):
@@ -32,7 +33,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic)
+            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic, depth=depth)
             # bounds memory usage by (250 x B x 256 x 256 x 3) x 4 bytes
             # i.e: 0.20 GB per batch dimension
             if len(episode) <= 250:
@@ -90,24 +91,53 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
             yield batch
 
 def collate_episodes(episodes):
-    rgbs, segs, actions, prev_actions, metas = [], [], [], [], []
+    depths, rgbs, segs, actions, prev_actions, metas = [], [], [], [], [], []
     for i, episode in enumerate(episodes):
-        actions.append(episode.actions)
+        flip_aug = np.random.random() < 0.50
+        _actions = episode.actions
+        if flip_aug:
+            left  = _actions == 2
+            right = _actions == 3
+            _actions[left], _actions[right] = 3, 2 # left <-> right
+        actions.append(_actions)
 
-        _prev_actions = torch.empty_like(episode.actions)
+        _prev_actions = torch.empty_like(actions[-1])
         _prev_actions[0] = 0
-        _prev_actions[1:].copy_(episode.actions[:-1])
+        _prev_actions[1:].copy_(actions[-1][:-1])
         prev_actions.append(_prev_actions)
 
         metas.append(episode.meta)
 
-        start = time.time()
-        worker_info = torch.utils.data.get_worker_info()
+        if episode.depth:
+            depths.append(torch.as_tensor(episode.get_depth_sequence()))
+
         if episode.rgb:
-            rgbs.append(torch.as_tensor(episode.get_rgb_sequence()).float())
+            rgb_sequence = episode.get_rgb_sequence()
+
+            # visual augmentation
+            # input: numpy T x H x W x C; i.e: T x 256 x 256 x 3
+            # output: torch, same dims
+            p = np.random.uniform(0., 1.)
+            if p < 0.20: # random crop; ratio from RAD paper
+                rgb_sequence = data_augs.random_crop(rgb_sequence.transpose(0,3,1,2), out=216).transpose(0,2,3,1)
+            elif p < 0.25: # random grayscale
+                rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
+            elif p < 0.30: # random cutout; ratio from RAD paper
+                rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
+            elif p < 0.40: # random cutout color; ratio from RAD paper
+                rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
+            elif p < 0.50: # color aug; slow, but apparently important
+                rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float))
+
+            if flip_aug:
+                rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,)) # prevent -1 stride
+
+            rgbs.append(torch.as_tensor(rgb_sequence).float())
 
         if episode.semantic:
-            segs.append(seg_seq = torch.as_tensor(episode.get_semantic_sequence()).float())
+            segs.append(torch.as_tensor(episode.get_semantic_sequence()).float())
+
+        #worker_info = torch.utils.data.get_worker_info()
         #print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] {(time.time()-start):.02f}')
 
     action_batch = pad_sequence(actions)
@@ -122,7 +152,7 @@ def collate_episodes(episodes):
     #lengths = torch.Tensor([len(episode) for episode in episodes])
     #pack_padded_sequence(rgb_batch, lengths, enforce_sorted=False)
 
-    return rgbs, segs, action_batch, prev_action_batch, meta_batch, mask
+    return depths, rgbs, segs, action_batch, prev_action_batch, meta_batch, mask
 
 
 class EpisodeDataset(torch.utils.data.Dataset):
@@ -139,16 +169,14 @@ class EpisodeDataset(torch.utils.data.Dataset):
 obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
 walkable = np.uint8([2])
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False, rgb=True, semantic=True):
+    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False, depth=False, rgb=True, semantic=False):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
         self.episode_dir = episode_dir
-        self.rgb = rgb
-        self.semantic = semantic
+        self.depth, self.rgb, self.semantic = depth, rgb, semantic
 
         self.interpolate = interpolate
-        self.augmentation = augmentation
 
         with open(self.episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
@@ -167,12 +195,17 @@ class HabitatDataset(torch.utils.data.Dataset):
         for i in range(self.actions.shape[0]):
             self.meta[i] = self._get_direction(i)
 
+        if self.depth:
+            assert (self.episode_dir / 'depth').exists()
+            self.depth_f = zarr.open(str(self.episode_dir / 'depth'), mode='r')
+
         if self.rgb:
             assert (self.episode_dir / 'rgb').exists()
             self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
 
         if self.semantic:
             assert (self.episode_dir / 'semantic').exists()
+            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
 
         # DAgger
         self.episode_idx = 0
@@ -199,6 +232,18 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return torch.Tensor([-direction_vector_agent[2], -direction_vector_agent[0]])
 
+    def get_depth_sequence(self):
+        if not self.depth_f:
+            self.depth_f = zarr.open(str(self.episode_dir / 'depth'), mode='r')
+
+        return self.depth_f[:]
+
+    def get_rgb_sequence(self):
+        if not self.rgb_f:
+            self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+
+        return self.rgb_f[:]
+
     NUM_SEMANTIC_CLASSES = 2
     @staticmethod
     def _make_semantic(semantic_observation):
@@ -206,12 +251,6 @@ class HabitatDataset(torch.utils.data.Dataset):
         floor = np.isin(semantic_observation, walkable)
 
         return np.stack([wall, floor], axis=-1)
-
-    def get_rgb_sequence(self):
-        if not self.rgb_f:
-            self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-
-        return self.rgb_f[:]
 
     def get_semantic_sequence(self):
         if not self.semantic_f:
@@ -239,69 +278,11 @@ class HabitatDataset(torch.utils.data.Dataset):
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
         meta = self.meta[idx]
 
-        """
-        if self.augmentation:
-            rgb, action, meta = self._aug(idx, rgb, action)
-        """
-
         # rgb, mapview, segmentation, action, meta, episode, prev_action
         return rgb, 0, seg, action, meta, self.episode_idx, prev_action
 
     def __lt__(self, other):
         return self.loss < other.loss
-
-    def _aug(self, start, rgb, action):
-        p = np.random.random()
-
-        """
-        if p < 0.10: # flip image + action
-            #print('flip')
-            rgb = rgb.transpose(Image.FLIP_LEFT_RIGHT)
-            action = self._flip_action(action)
-            return rgb, action, self._get_direction(start)
-        """
-
-        """
-        if p < 0.15 and action == 1: # if we have a straight path, what if we had turned left?
-            #print('rot')
-            source_position = self.positions[start]
-            source_rotation = Quaternion(*self.rotations[start,1:4], self.rotations[start,0])
-            goal_position = self.end_position
-            
-            if np.random.random() < 0.50:
-                rotation, action = self.left, torch.LongTensor([3])[0]
-            else:
-                rotation, action = self.right, torch.LongTensor([2])[0]
-            direction = HabitatDataset.get_direction(source_position, rotation * source_rotation, goal_position)
-
-            return rgb, action, direction
-        """
-
-        if p < 0.30: # goal is k steps ahead, instead of end_position
-            #print('truncate')
-            k = np.random.randint(3, 25)
-            return rgb, action, self._get_direction(start, start+k)
-
-        if p < 0.50: # stop if within 0.20
-            x = np.random.random() * 0.20
-            y = np.random.random() * np.sqrt(0.20**2 - x**2)
-
-            return rgb, torch.LongTensor([0])[0], torch.Tensor([x, y])
-
-        return rgb, action, self._get_direction(start)
-
-    def _flip_action(self, action):
-        # 0: stop
-        # 1: forward
-        # 2: left 10º
-        # 3: right 10º
-        if action == 2:
-            return torch.LongTensor([3])[0]
-        if action == 3:
-            return torch.LongTensor([2])[0]
-
-        return action
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

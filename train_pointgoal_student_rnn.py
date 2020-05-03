@@ -24,83 +24,6 @@ from habitat_wrapper import TASKS, MODELS, MODALITIES, Rollout, get_episode, sav
 import cProfile
 from pytorch_memlab import profile
 
-all_success = []
-all_spl = []
-all_soft_spl = []
-all_dfg = []
-all_d_ratio = []
-c = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
-
-COLORS = [
-    (255,   0, 232), # wall
-    (116,  56, 117)  # floor
-]
-
-# NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ
-rollout_freq = {
-    'castle': [50, 10, 5],
-    'office': [100, 20, 5],
-    'mp3d': [50, 10, 20],
-    'gibson': [50, 10, 20]
-}
-
-def _get_box(all_x, EPOCH_FREQ):
-    fig = go.Figure(data=[go.Box(y=data,
-        boxpoints='all',
-        boxmean=True,
-        jitter=0.1,
-        pointpos=-1.6,
-        name=f"{max(wandb.run.summary['epoch']-20, 0)+(EPOCH_FREQ*i)}",
-        marker_color=c[i]
-    ) for i, data in enumerate(all_x[-20:])])
-    fig.update_layout(
-        xaxis=dict(title='Epoch', showgrid=False, zeroline=False, dtick=1),
-        yaxis=dict(zeroline=False, gridcolor='white'),
-        paper_bgcolor='rgb(233,233,233)',
-        plot_bgcolor='rgb(233,233,233)',
-        showlegend=False
-    )
-
-    return fig
-
-def _get_hist2d(x, y):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x,
-        y=y,
-        mode='markers',
-        showlegend=False,
-        marker=dict(
-            symbol='x',
-            opacity=0.7,
-            color='white',
-            size=8,
-            line=dict(width=1),
-        )
-    ))
-
-    fig.add_trace(go.Histogram2d(
-        x=x,
-        y=y,
-        autobinx=False,
-        xbins=dict(start=0, end=25, size=2),
-        autobiny=False,
-        ybins=dict(start=0, end=1, size=0.05),
-        histnorm='probability density',
-        colorscale=["#cc0000", "#4e9a06", "#73d216", "#8ae234"]
-    ))
-
-    fig.update_layout(
-        xaxis=dict( ticks='', showgrid=False, zeroline=False, range=[0, 25] ),
-        yaxis=dict( ticks='', showgrid=False, zeroline=False, nticks=20, range=[0,1] ),
-        autosize=False,
-        height=550,
-        width=550,
-        hovermode='closest',
-    )
-
-    return fig
-
 
 def pass_single(net, criterion, target, action, meta, config, optim=None):
     target = target.to(config['device'])
@@ -220,14 +143,15 @@ def pass_sequence(net, criterion, target, action, prev_action, meta, mask, confi
         return pass_sequence_tbptt(net, criterion, target_batch, action, prev_action, meta, mask, config, optim)
 
 
-def get_target(rgb, seg, config):
+def get_target(depth, rgb, semantic, config):
+    if config['student_args']['target'] == 'depth':
+        return depth
     if config['student_args']['target'] == 'semantic':
-        return seg
+        return semantic
     return rgb
 
-def validate(net, env, data, config):
-    NUM_EPISODES, VIDEO_FREQ, EPOCH_FREQ = rollout_freq[config['data_args']['scene']]
 
+def validate(net, env, data, config):
     net.eval()
     net.batch_size = config['data_args']['batch_size']
     #env.mode = 'student'
@@ -239,11 +163,11 @@ def validate(net, env, data, config):
     # static validation set
     for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
-            rgb, _, seg, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, get_target(rgb, seg, config), action, meta, config, optim=None)
+            depth, rgb, _, semantic, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, get_target(depth, rgb, semantic, config), action, meta, config, optim=None)
         else:
-            rgb, seg, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=None)
+            depth, rgb, semantic, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, get_target(depth, rgb, semantic, config), action, prev_action, meta, mask, config, optim=None)
 
         losses.append(loss_mean)
         metrics = {
@@ -256,136 +180,6 @@ def validate(net, env, data, config):
                 step=wandb.run.summary['step'])
 
         tick = time.time()
-
-    # rollout
-    # NOTE: slide back iterator to 1st episode so we always validate over same episodes
-    # castle: 50 val episodes
-    # office: 495 ...
-    #env.env.episode_iterator._iterator = iter(env.env.episode_iterator.episodes)
-    """
-    net.batch_size = 1
-    if wandb.run.summary['epoch'] % EPOCH_FREQ == 0:
-        distance_to_goal = np.empty(NUM_EPISODES)
-        distance_from_goal = np.empty(NUM_EPISODES)
-        d_ratio = np.empty(NUM_EPISODES)
-        success = np.empty(NUM_EPISODES)
-        spl = np.empty(NUM_EPISODES)
-        soft_spl = np.empty(NUM_EPISODES)
-        avg_value = np.empty(NUM_EPISODES)
-
-        for ep in range(NUM_EPISODES):
-            value = []
-            images = []
-
-            if config['student_args']['method'] != 'feedforward':
-                net.clean()
-
-            for i, step in enumerate(get_episode(env)):
-                if i == 0:
-                    distance_to_goal[ep] = env.env.get_metrics()['distance_to_goal'] #np.linalg.norm(start[[0,2]]-goal[[0,2]])
-                if config['student_args']['method'] != 'feedforward':
-                    value.append(net.value.item())
-                if ep % VIDEO_FREQ == 0:
-                    frame = Image.fromarray(step['rgb'])
-                    draw = ImageDraw.Draw(frame)
-
-                    if config['student_args']['target'] == 'semantic': # overlay road
-                        classes = HabitatDataset._make_semantic(step['semantic'])
-
-                        for _class in range(classes.shape[-1]):
-                            label = Image.new('RGB', frame.size, COLORS[_class])
-                            mask = Image.fromarray(255 * np.uint8(classes[:,:,_class]))
-                            frame = Image.composite(label,frame,mask).convert('RGB')
-
-                    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
-                    direction = env.get_direction()
-                    draw.rectangle((0, 0, 255, 20), fill='black')
-                    draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
-
-                    images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
-
-            env_metrics = env.env.get_metrics()
-            start = np.array(env.env.current_episode.start_position)
-            goal = np.array(env.env.current_episode.goals[0].position)
-            curr = np.array(env.state.sensor_states['rgb'].position) # NOTE: these sensor states somehow match with start/end
-
-            distance_from_goal[ep] = env_metrics['distance_to_goal'] #np.linalg.norm(curr[[0,2]]-goal[[0,2]])
-            d_ratio[ep] = distance_to_goal[ep] / (distance_from_goal[ep] + 0.00001)
-            success[ep] = env_metrics['success']
-            spl[ep] = env_metrics['spl']
-            soft_spl[ep] = env_metrics['softspl']
-            avg_value[ep] = np.mean(value)
-
-            metrics = {}
-            if ep == NUM_EPISODES - 1:
-                all_success.append(success)
-                success_mean = np.mean(success)
-                metrics['success_mean'] = success_mean
-                metrics['success_std'] = np.std(success)
-                metrics['success_median'] = np.median(success)
-                metrics['success'] = wandb.Histogram(success)
-                metrics['success_box'] = _get_box(all_success, EPOCH_FREQ)
-                metrics['within_0.5'] = (distance_from_goal < 0.5).mean()
-                metrics['within_1.0'] = (distance_from_goal < 1.0).mean()
-
-                all_spl.append(spl)
-                spl_mean = np.mean(spl)
-                metrics['spl_mean'] = spl_mean
-                metrics['spl_std'] = np.std(spl)
-                metrics['spl_median'] = np.median(spl)
-                metrics['spl'] = wandb.Histogram(spl)
-                metrics['spl_box'] = _get_box(all_spl, EPOCH_FREQ)
-
-                all_soft_spl.append(soft_spl)
-                soft_spl_mean = np.mean(soft_spl)
-                metrics['soft_spl_mean'] = soft_spl_mean
-                metrics['soft_spl_std'] = np.std(soft_spl)
-                metrics['soft_spl_median'] = np.median(soft_spl)
-                metrics['soft_spl'] = wandb.Histogram(soft_spl)
-                metrics['soft_spl_box'] = _get_box(all_soft_spl, EPOCH_FREQ)
-
-                if config['student_args']['method'] != 'feedforward':
-                    metrics['value_mean'] = np.mean(avg_value)
-
-                dtg_mean = np.mean(distance_to_goal)
-                metrics['dtg_mean'] = dtg_mean
-                metrics['dtg_median'] = np.median(distance_to_goal)
-                metrics['dtg'] = wandb.Histogram(distance_to_goal)
-
-                all_dfg.append(distance_from_goal)
-                dfg_mean = np.mean(distance_from_goal)
-                metrics['dfg_mean'] = dfg_mean
-                metrics['dfg_median'] = np.median(distance_from_goal)
-                metrics['dfg_box'] = _get_box(all_dfg, EPOCH_FREQ)
-                metrics['dfg'] = wandb.Histogram(distance_from_goal)
-
-                # how close are we to goal relative to the starting distance?
-                all_d_ratio.append(d_ratio)
-                d_ratio_mean = np.mean(d_ratio)
-                metrics['d_ratio_mean'] = d_ratio_mean
-                metrics['d_ratio_box'] = _get_box(all_d_ratio, EPOCH_FREQ)
-
-                # difficulty of episodes has big impact on SPL/success, so normalize
-                metrics['spl_dtg_mean'] = dtg_mean * spl_mean
-                metrics['success_dtg_mean'] = dtg_mean * success_mean
-
-                metrics['distance_to_goal_vs_success'] = _get_hist2d(distance_to_goal, success)
-                metrics['distance_to_goal_vs_spl'] = _get_hist2d(distance_to_goal, spl)
-                metrics['distance_to_goal_vs_soft_spl'] = _get_hist2d(distance_to_goal, soft_spl)
-                metrics['distance_from_goal_vs_success'] = _get_hist2d(distance_from_goal, success)
-
-            if ep % VIDEO_FREQ == 0 and len(images) > 0:
-                fig = go.Figure(data=[go.Scatter(
-                    x=np.arange(1, len(value)+1),
-                    y=value
-                )])
-                metrics[f'values_{(ep//VIDEO_FREQ)+1}'] = fig
-                metrics[f'video_{(ep//VIDEO_FREQ)+1}'] = wandb.Video(np.array(images), fps=20, format='mp4')
-
-            wandb.log(
-                    {('%s/%s' % ('val', k)): v for k, v in metrics.items()},
-                    step=wandb.run.summary['step'])
-        """
 
     return np.mean(losses)
 
@@ -401,11 +195,11 @@ def train(net, env, data, optim, config):
 
     for i, x in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
-            rgb, _, seg, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, get_target(rgb, seg, config), action, meta, config, optim=optim)
+            depth, rgb, _, semantic, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, get_target(depth, rgb, semantic, config), action, meta, config, optim=optim)
         else:
-            rgb, seg, action, prev_action, meta, mask = x
-            loss_mean = pass_sequence(net, criterion, get_target(rgb, seg, config), action, prev_action, meta, mask, config, optim=optim)
+            depth, rgb, semantic, action, prev_action, meta, mask = x
+            loss_mean = pass_sequence(net, criterion, get_target(depth, rgb, semantic, config), action, prev_action, meta, mask, config, optim=optim)
 
         losses.append(loss_mean)
         wandb.run.summary['step'] += 1
@@ -487,6 +281,7 @@ def main(config):
             wandb.run.summary['best_val_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
 
+        """
         spl_mean = all_spl[-1].mean() if len(all_spl) > 0 else 0.0
         if spl_mean > wandb.run.summary.get('best_spl', -np.inf):
             wandb.run.summary['best_spl'] = spl_mean
@@ -496,6 +291,7 @@ def main(config):
         if soft_spl_mean > wandb.run.summary.get('best_soft_spl', -np.inf):
             wandb.run.summary['best_soft_spl'] = soft_spl_mean
             wandb.run.summary['best_soft_spl_epoch'] = wandb.run.summary['epoch']
+        """
 
         if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
