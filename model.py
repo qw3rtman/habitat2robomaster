@@ -87,7 +87,7 @@ class ConditionalImitation(DirectImitation):
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, target, batch_size, resnet_model='resnet50', input_channels=3, **kwargs):
+    def __init__(self, target, batch_size, resnet_model='resnet50', input_channels=3, tgt_mode='ddppo', **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         self.target = target
@@ -100,7 +100,7 @@ class ConditionalStateEncoderImitation(nn.Module):
         elif self.target == 'rgb':
             target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
 
-        observation_spaces, action_spaces = spaces.Dict({
+        self.observation_spaces, self.action_spaces = spaces.Dict({
             self.target: target_space,
             'pointgoal_with_gps_compass': spaces.Box( 
                 low=np.finfo(np.float32).min,
@@ -110,16 +110,18 @@ class ConditionalStateEncoderImitation(nn.Module):
             ),
         }), spaces.Discrete(4)
 
+        print(tgt_mode)
         self.actor_critic = PointNavResNetPolicy(
-            observation_space=observation_spaces,
-            action_space=action_spaces,
+            observation_space=self.observation_spaces,
+            action_space=self.action_spaces,
             hidden_size=512,
             rnn_type='LSTM',
             num_recurrent_layers=2,
             backbone=resnet_model,
             goal_sensor_uuid='pointgoal_with_gps_compass',
-            normalize_visual_inputs='rgb' in observation_spaces.spaces.keys(),
-            tgt_mode='nimit', # NOTE: (dx, dy)
+            normalize_visual_inputs='rgb' in self.observation_spaces.spaces.keys(),
+            #tgt_mode='nimit', # NOTE: (dx, dy)
+            tgt_mode=tgt_mode, # NOTE: direct pointgoal_with_gps_compass inputs
             input_channels=input_channels
         )
 

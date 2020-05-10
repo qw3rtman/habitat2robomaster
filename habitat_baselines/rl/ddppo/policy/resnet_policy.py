@@ -84,8 +84,8 @@ class ResNetEncoder(nn.Module):
             self.running_mean_and_var = nn.Sequential()
 
         if not self.is_blind:
-            input_channels = input_channels #self._n_input_depth + self._n_input_rgb
-            self.backbone = make_backbone(input_channels, baseplanes, ngroups)
+            self.input_channels = input_channels #self._n_input_depth + self._n_input_rgb
+            self.backbone = make_backbone(self.input_channels, baseplanes, ngroups)
 
             final_spatial = int(
                 spatial_size * self.backbone.final_spatial_compress

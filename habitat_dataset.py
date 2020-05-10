@@ -110,9 +110,10 @@ def collate_episodes(episodes):
         prev_actions.append(_prev_actions)
 
         metas.append(episode.meta)
+        #metas.append(episode.compass)
 
         if episode.depth:
-            depths.append(torch.as_tensor(episode.get_depth_sequence()))
+            depths.append(torch.as_tensor(episode.get_depth_sequence())) # float
 
         if episode.rgb:
             rgb_sequence = episode.get_rgb_sequence()
@@ -124,29 +125,28 @@ def collate_episodes(episodes):
             if p < 0.20: # random crop; ratio from RAD paper
                 #print('random crop')
                 rgb_sequence = aug(images=rgb_sequence)
-            elif p < 0.25: # random grayscale
-                #print('random grayscale')
-                rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
-            elif p < 0.30: # random cutout; ratio from RAD paper
+            elif p < 0.35: # random cutout; ratio from RAD paper
                 #print('random cutout')
                 rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
-            elif p < 0.40: # random cutout color; ratio from RAD paper
+            elif p < 0.50: # random cutout color; ratio from RAD paper
                 #print('random cutout color')
                 rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
-            elif p < 0.50: # color aug; slow, but apparently important
+
+            p = np.random.uniform(0., 1.)
+            if p < 0.15: # random grayscale
+                #print('random grayscale')
+                rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
+            elif p < 0.30: # color aug; slow, but apparently important
                 #print('color jitter')
                 rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float)).permute(0,2,3,1)
-            else:
-                #print('none')
-                pass
 
             if flip_aug:
                 rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,)) # prevent -1 stride
 
-            rgbs.append(torch.as_tensor(rgb_sequence).float())
+            rgbs.append(torch.as_tensor(rgb_sequence).type(torch.uint8))
 
         if episode.semantic:
-            segs.append(torch.as_tensor(episode.get_semantic_sequence()).float())
+            segs.append(torch.as_tensor(episode.get_semantic_sequence()).type(torch.uint8))
 
         #worker_info = torch.utils.data.get_worker_info()
         #print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] {(time.time()-start):.02f}')
@@ -195,6 +195,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.positions = torch.as_tensor(x[:, 5:8])
         self.rotations = torch.as_tensor(x[:, 8:])
         self.actions = torch.LongTensor(x[:, 1])
+        self.compass = torch.as_tensor(x[:, 3:5])
 
         with open(self.episode_dir / 'info.csv', 'r') as f:
             info = f.readlines()[1].split(',')
@@ -255,19 +256,19 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         return self.rgb_f[:]
 
-    NUM_SEMANTIC_CLASSES = 40
-    @staticmethod
-    def _make_semantic(semantic_observation):
-        wall  = np.isin(semantic_observation, obstacles)
-        floor = np.isin(semantic_observation, walkable)
-
-        return np.stack([wall, floor], axis=-1)
-
+    NUM_SEMANTIC_CLASSES = 10
+    top10 = np.array([1, 2, 17, 4, 40, 0, 9, 7, 5, 3])
     def get_semantic_sequence(self):
         if not self.semantic_f:
             self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
 
-        return self.semantic_f[:]
+        semantic = self.semantic_f[:]
+
+        onehot = torch.zeros(*semantic.shape, HabitatDataset.NUM_SEMANTIC_CLASSES, dtype=torch.long)
+        for idx, _class in enumerate(HabitatDataset.top10):
+            onehot[..., idx] = torch.as_tensor(semantic == _class)
+        #return semantic[..., np.newaxis].astype(np.float32) / 41
+        return onehot
 
     def __getitem__(self, idx):
         rgb = 0
@@ -288,6 +289,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)
         meta = self.meta[idx]
+        #meta = self.compass[idx]
 
         # rgb, mapview, segmentation, action, meta, episode, prev_action
         return rgb, 0, seg, action, meta, self.episode_idx, prev_action

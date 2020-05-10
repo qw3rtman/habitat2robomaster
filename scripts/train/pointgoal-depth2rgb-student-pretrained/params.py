@@ -7,8 +7,8 @@ jobs = list()
 unique = '4.27'
 
 for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth2rgb', 'gibson')]: # validate in gibson habitat challenge 2019 val
-    for method, batch_sizes in [('backprop', [8, 16])]: #, ('tbptt', [8, 16])]: # ('feedforward', [64, 128])
-        for resnet_model in ['resnet50']: # NOTE: se_resneXt50 used for their RGB models
+    for method, batch_sizes in [('backprop', [16, 32])]: #, ('tbptt', [8, 16])]: # ('feedforward', [64, 128])
+        for resnet_model in ['resnet50', 'se_resneXt50']: # NOTE: se_resneXt50 used for their RGB models
             for batch_size in batch_sizes:
                 for lr in [1e-3, 1e-4]:
                     for weight_decay in [5e-4, 5e-5]:
@@ -25,7 +25,8 @@ for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth
     --lr {lr} \\
     --batch_size {batch_size} \\
     --weight_decay {weight_decay} \\
-    --checkpoint_dir /scratch/cluster/nimit/checkpoints
+    --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
+    --pretrained
 """
 
                         jobs.append(job)

@@ -67,7 +67,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='[*]', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], **kwargs):
+    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert mode in MODES
@@ -82,6 +82,7 @@ class Rollout:
         self.mode = mode
         self.student = student
         self.rnn = rnn
+        self.compass = compass
 
         ####### agent config ##################################################
         agent_config = Config()
@@ -91,7 +92,7 @@ class Rollout:
         agent_config.GOAL_SENSOR_UUID         = 'pointgoal_with_gps_compass'
 
         agent_config.MODEL_PATH, resnet_model = '', 'resnet50'
-        if mode == 'teacher':
+        if mode in ['teacher', 'both']:
             agent_config.MODEL_PATH, resnet_model = MODELS[agent_config.INPUT_TYPE]['ddppo']
 
         agent_config.RANDOM_SEED              = 7
@@ -175,16 +176,25 @@ class Rollout:
 
     def act_student(self):
         if self.proxy == 'semantic':
-            proxy = HabitatDataset._make_semantic(self.observations[self.proxy]).unsqueeze(dim=0)
+            semantic = self.observations['semantic']
+            onehot = torch.zeros(*semantic.shape, HabitatDataset.NUM_SEMANTIC_CLASSES, dtype=torch.long)
+            for idx, _class in enumerate(HabitatDataset.top10):
+                onehot[..., idx] = torch.as_tensor(semantic == _class)
+
+            proxy = onehot.unsqueeze(dim=0).float()
+            #print(proxy.shape)
         else:
-            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0)
+            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
         proxy = proxy.to(self.device)
 
         if self.task == 'dontcrash':
             out = self.student((proxy,))
         elif self.task == 'pointgoal':
-            meta = self.get_direction().unsqueeze(dim=0)
-            meta = meta.to(self.device)
+            if self.compass:
+                meta = torch.as_tensor(self.observations['pointgoal_with_gps_compass'])
+            else:
+                meta = self.get_direction()
+            meta = meta.unsqueeze(dim=0).to(self.device)
 
             if self.rnn:
                 out = self.student((proxy, meta, self.prev_action, self.mask))

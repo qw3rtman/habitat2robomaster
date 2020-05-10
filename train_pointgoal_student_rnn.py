@@ -16,8 +16,11 @@ import pandas as pd
 from pathlib import Path
 import plotly.graph_objects as go
 from PIL import Image, ImageDraw, ImageFont
+from gym import spaces
 
-from model import get_model
+from model import get_model, ConditionalStateEncoderImitation
+from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
+from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_dataset import get_dataset, HabitatDataset
 from habitat_wrapper import TASKS, MODELS, MODALITIES, Rollout, get_episode, save_episode
 
@@ -51,26 +54,65 @@ def pass_sequence_tbptt(net, criterion, target, action, prev_action, meta, mask,
 """ chunk_sizes ------------------------------------------------------*
     c1: chunk size; graphs, hidden states, etc. must fit in memory    |
     c2: frequency of moving to GPU; i.e: number of batched-timesteps """
-chunk_sizes = {
-    'GeForce GTX 1080': { # 8 GB
-        8:   (8, 120),
-        16:  (6, 100), # whole sequence can fit
-        32:  (4, 50),
-        64:  (3, 6), # 
-        128: (2, 2),  # 263.42 img/sec
+chunk_sizes = { # pretrained > target > gpu
+    True: {
+        'rgb': {
+            'GeForce GTX 1080': { # 8 GB
+                8:   (12, 120),
+                16:  (10, 100), # whole sequence can fit
+                32:  (6, 50),
+                64:  (4, 24), # 
+                128: (1, 12),  # 263.42 img/sec
+            },
+            'GeForce GTX 1080 Ti': { # 11 GB
+                8:   (12, 120),
+                16:  (10, 100),
+                32:  (6, 72),
+                64:  (4, 36),
+                128: (1, 18)
+            }
+        }
     },
-    'GeForce GTX 1080 Ti': { # 11 GB
-        8:   (10, 120),
-        16:  (8, 100),
-        32:  (6, 50),
-        64:  (4, 6),
-        128: (2, 2)
+    False: {
+        'rgb': {
+            'GeForce GTX 1080': { # 8 GB
+                8:   (8, 120),
+                16:  (6, 100), # whole sequence can fit
+                32:  (4, 50),
+                64:  (2, 24), # 
+                128: (1, 12),  # 263.42 img/sec
+            },
+            'GeForce GTX 1080 Ti': { # 11 GB
+                8:   (10, 120),
+                16:  (8, 100),
+                32:  (4, 72),
+                64:  (2, 36),
+                128: (1, 18)
+            }
+        }, 'semantic': {
+            'GeForce GTX 1080': { # 8 GB
+                4:   (3, 50),
+                8:   (2, 36),
+                16:  (1, 30), # whole sequence can fit
+                32:  (1, 1),
+                64:  (1, 1), # 
+                128: (1, 1),  # 263.42 img/sec
+            },
+            'GeForce GTX 1080 Ti': { # 11 GB
+                4:   (4, 50),
+                8:   (3, 36),
+                16:  (2, 30),
+                32:  (1, 1),
+                64:  (1, 1),
+                128: (1, 1),
+            }
+        }
     }
 }
 
 
 def pass_sequence_backprop(net, criterion, target, action, prev_action, meta, mask, config, optim=None):
-    c1, c2 = chunk_sizes[config['gpu']][net.batch_size]
+    c1, c2 = chunk_sizes[config['student_args']['pretrained']][config['student_args']['target']][config['gpu']][net.batch_size]
     #print(f'c1={c1} c2={c2}')
 
     sequence_loss, chunk_loss = 0, 0
@@ -147,8 +189,8 @@ def get_target(depth, rgb, semantic, config):
     if config['student_args']['target'] == 'depth':
         return depth
     if config['student_args']['target'] == 'semantic':
-        return semantic
-    return rgb
+        return semantic.float()
+    return rgb.float()
 
 
 def validate(net, env, data, config):
@@ -235,21 +277,50 @@ def main(config):
     input_channels = 3
     if config['student_args']['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
-    net = get_model(**config['student_args'], input_channels=input_channels).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
 
-    #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
-    sensors = ['RGB_SENSOR']
-    if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
-        sensors.append('SEMANTIC_SENSOR')
-    env_val = None
-    #env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors, gpu_id=1)
+    if config['student_args']['pretrained']:
+        # load DDPPO pretrained depth model
+        net = ConditionalStateEncoderImitation('depth', config['data_args']['batch_size'], resnet_model='resnet50', input_channels=1, tgt_mode='ddppo').to(config['device'])
+        ckpt = torch.load('/scratch/cluster/nimit/models/habitat/ddppo/gibson-4plus-mp3d-train-val-test-resnet50.pth')
+        net.actor_critic.load_state_dict({k[len('actor_critic.') :]: v for k, v in ckpt['state_dict'].items() if 'actor_critic' in k})
 
-    optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
+        # set up visual encoder
+        net.target = 'rgb'
+        net.observation_spaces = spaces.Dict({
+            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8),
+            'pointgoal_with_gps_compass': spaces.Box(
+                low=np.finfo(np.float32).min,
+                high=np.finfo(np.float32).max,
+                shape=(2,),
+                dtype=np.float32)})
+        net.actor_critic.net.visual_encoder = ResNetEncoder(net.observation_spaces, baseplanes=32,
+                make_backbone=getattr(resnet, config['student_args']['resnet_model']), ngroups=16,
+                normalize_visual_inputs=True, input_channels=3).to(config['device'])
+
+        # freeze all layers except visual encoder + visual fc
+        for param in list(net.actor_critic.net.prev_action_embedding.parameters()) + list(net.actor_critic.net.tgt_embeding.parameters()):
+            param.requires_grad = False
+
+        optim = torch.optim.Adam(list(net.actor_critic.net.visual_encoder.parameters()) + list(net.actor_critic.net.visual_fc.parameters()), **config['optimizer_args'])
+    else:
+        net = get_model(**config['student_args'], input_channels=input_channels, tgt_mode=('ddppo' if config['student_args']['target'] == 'semantic' else 'nimit')).to(config['device'])
+        optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
+
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optim,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75],
             gamma=0.5)
+
+    data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
+
+    """ simulator
+    #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
+    sensors = ['RGB_SENSOR']
+    if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
+        sensors.append('SEMANTIC_SENSOR')
+    #env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors, gpu_id=1)
+    """
+    env_val = None
 
     project_name = 'habitat-{}-{}-student'.format(
             config['teacher_args']['task'], config['teacher_args']['proxy'])
@@ -309,6 +380,7 @@ if __name__ == '__main__':
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
 
     # Student args.
+    parser.add_argument('--pretrained', action='store_true')
     parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', choices=['resnet18', 'resnet50', 'resneXt50', 'se_resnet50', 'se_resneXt101', 'se_resneXt50'])
     parser.add_argument('--method', type=str, choices=['feedforward', 'backprop', 'tbptt'], default='backprop', required=True)
@@ -329,7 +401,7 @@ if __name__ == '__main__':
 
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
-        'bc', parsed.method,                                                                                  # training paradigm
+        'bc', parsed.method, 'pretrained' if parsed.pretrained else ''                                        # training paradigm
         f'{parsed.proxy}2{parsed.target}',                                                                    # modalities
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
@@ -353,6 +425,7 @@ if __name__ == '__main__':
                 },
 
             'student_args': {
+                'pretrained': parsed.pretrained,
                 'target': parsed.target,
                 'resnet_model': parsed.resnet_model,
                 'method': parsed.method,
@@ -362,7 +435,7 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
-                'num_workers': 1 if parsed.method != 'feedforward' else 4,
+                'num_workers': 2 if parsed.method != 'feedforward' else 4,
 
                 'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,

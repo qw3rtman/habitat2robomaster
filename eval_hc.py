@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 from PIL import Image, ImageDraw, ImageFont
 
 from habitat_wrapper import Rollout, get_episode, METRICS
+from habitat_dataset import HabitatDataset
 from model import get_model
 
 COLORS = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
@@ -45,7 +46,14 @@ all_success, all_spl, all_softspl, total = {}, {}, {}, 0
 def _eval_scene(scene, parsed):
     global total
 
-    env = Rollout(**teacher_args, student=net, split=f'{parsed.split}_ddppo', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], scenes=scene)
+    split = f'{parsed.split}' if student_args['target'] == 'semantic' else f'{parsed.split}_ddppo'
+    print(split)
+    sensors = ['RGB_SENSOR']
+    if student_args['target'] == 'semantic':
+        sensors.append('SEMANTIC_SENSOR')
+    else:
+        sensors.append('DEPTH_SENSOR')
+    env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
 
     print(f'[!] Start {scene}')
     success = np.zeros(NUM_EPISODES)
@@ -82,6 +90,7 @@ def _eval_scene(scene, parsed):
 
         #print(f'[{ep+1}/NUM_EPISODES] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
 
+        print(total)
         log = {f'{scene}_video': wandb.Video(np.array(images), fps=20, format='mp4'),
                 'success_mean': np.sum(np.concatenate([_success for _success in all_success.values()])) / total,
                 'spl_mean': np.sum(np.concatenate([_spl for _spl in all_spl.values()])) / total,
@@ -105,6 +114,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--split', required=True)
+    parser.add_argument('--compass', action='store_true')
     parsed = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -112,18 +122,34 @@ if __name__ == '__main__':
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
 
-    net = get_model(**student_args).to(device)
+    input_channels = 3
+    if student_args['target'] == 'semantic':
+        input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
+    net = get_model(**student_args, tgt_mode='ddppo' if parsed.compass else 'nimit', input_channels=input_channels).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()
 
-    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}"
-    wandb.init(project='pointgoal-rgb2depth-eval', config=get_model_args(parsed.model), id=run_name)
+    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}-special"
+    wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=get_model_args(parsed.model))
     wandb.run.summary['episode'] = 0
 
-    scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')]
+    if student_args['target'] == 'semantic':
+        with open('splits/mp3d_val.txt', 'r') as f:
+            scenes = [scene.strip() for scene in f.readlines()]
+        available_scenes = scenes
+        print(scenes)
+    else:
+        #available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')])
+        available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/val_ddppo/content').glob('*.gz')])
+        with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
+            splits = pd.read_csv(csv_f)
+        #scenes = splits[splits['train'] ==1]['id'].tolist()
+        scenes = splits[splits['val'] ==1]['id'].tolist()
     with torch.no_grad():
         for scene in scenes:
+            if scene not in available_scenes:
+                continue
             _eval_scene(scene, parsed)
 
     log = {

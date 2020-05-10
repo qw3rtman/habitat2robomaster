@@ -109,6 +109,9 @@ class PPOAgent(Agent):
                 }
             )
 
+            #print(self.actor_critic)
+            print(config.MODEL_PATH)
+
         else:
             habitat.logger.error(
                 "Model checkpoint wasn't loaded, evaluating " "a random model."
