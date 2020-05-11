@@ -59,7 +59,7 @@ chunk_sizes = { # pretrained > target > gpu
         'rgb': {
             'GeForce GTX 1080': { # 8 GB
                 8:   (12, 120),
-                16:  (10, 100), # whole sequence can fit
+                16:  (10, 150), # whole sequence can fit
                 32:  (6, 50),
                 64:  (4, 24), # 
                 128: (1, 12),  # 263.42 img/sec
@@ -77,7 +77,7 @@ chunk_sizes = { # pretrained > target > gpu
         'rgb': {
             'GeForce GTX 1080': { # 8 GB
                 8:   (8, 120),
-                16:  (6, 100), # whole sequence can fit
+                16:  (5, 150), # whole sequence can fit
                 32:  (4, 50),
                 64:  (2, 24), # 
                 128: (1, 12),  # 263.42 img/sec

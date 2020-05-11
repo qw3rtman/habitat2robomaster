@@ -74,18 +74,27 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
                 buckets[length] = []
             buckets[length].append(idx)
 
-        idx, self.batches = 0, [0] * len(episodes)
-        for indices in buckets.values():
+        idx, self.batches, self.length_idx = 0, [0] * len(episodes), {}
+        for length, indices in buckets.items():
             random.shuffle(indices)
             self.batches[idx:idx+len(indices)] = indices
+            self.length_idx[length] = idx
             idx += len(indices)
+
+        idx = 0
+        for length in range(0, 250):
+            if length not in self.length_idx:
+                length_idx[length] = idx
+            else:
+                idx = length_idx[length]
 
     def __len__(self):
         return len(self.batches) // self.batch_size
 
     def __iter__(self):
         for _ in range(len(self)):
-            start_idx = int((len(self.batches) - self.batch_size) * random.random())
+            length = 250 * random.random() # uniformly sample episode lengths
+            start_idx = min(len(self.batches) - self.batch_size, self.length_idx[length])
             batch = self.batches[start_idx:start_idx+self.batch_size]
             random.shuffle(batch)
 
