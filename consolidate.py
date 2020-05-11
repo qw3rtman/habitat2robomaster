@@ -23,5 +23,5 @@ for source in parsed.source:
                 print(episode_name)
 
                 #(parsed.destination / split / f'{ep:06}').symlink_to(episode)
-                (parsed.destination / split / f'{episode_name}-semantic').symlink_to(episode)
+                (parsed.destination / split / f'{episode_name}-depth').symlink_to(episode)
                 ep += 1

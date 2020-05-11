@@ -74,7 +74,16 @@ chunk_sizes = { # pretrained > target > gpu
         }
     },
     False: {
-        'rgb': { # 32 MiB per sample in graph; 0.79 MiB per sample to hold; ~700 MiB for model
+        'depth': { # 10 MiB per sample in graph; 0.26 MiB per sample to hold; ~700 MiB for model
+            'GeForce GTX 1080': { # 8 GB
+                32:  (10, 50), # 7731 MiB / 8119 MiB;
+                64:  (5, 25),  # 8037 MiB / 8119 MiB; ~15 min/epoch
+            },
+            'GeForce GTX 1080 Ti': { # 11 GB
+                32:  (12, 60),
+                64:  (6, 30),
+            }
+        }, 'rgb': { # 32 MiB per sample in graph; 0.79 MiB per sample to hold; ~700 MiB for model
             'GeForce GTX 1080': { # 8 GB
                 #8:   (8, 120), #
                 #16:  (6, 96),  # 8024 MiB / 8119 MiB; 
@@ -275,7 +284,9 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     input_channels = 3
-    if config['student_args']['target'] == 'semantic':
+    if config['student_args']['target'] == 'depth':
+        input_channels = 1
+    elif config['student_args']['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
 
     if config['student_args']['pretrained']:
@@ -311,7 +322,7 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75],
             gamma=0.5)
 
-    data_train, data_val = get_dataset(**config['data_args'], rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
+    data_train, data_val = get_dataset(**config['data_args'], depth=config['student_args']['target']=='depth', rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
 
     """ simulator
     #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')

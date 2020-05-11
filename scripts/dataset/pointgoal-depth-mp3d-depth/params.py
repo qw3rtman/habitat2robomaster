@@ -4,9 +4,9 @@ from pathlib import Path
 jobs = list()
 
 NUM_FRAMES = {
-    'train': 10000,
-    'val': 200,
-    'test': 200
+    'train': 1500,
+    'val': 50,
+    'test': 50
 }
 
 root = '/scratch/cluster/nimit/data/habitat/pointgoal-depth-mp3d-depth'

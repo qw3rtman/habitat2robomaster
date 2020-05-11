@@ -34,7 +34,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, rgb=rgb, semantic=semantic, depth=depth)
+            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, depth=depth, rgb=rgb, semantic=semantic)
             # bounds memory usage by (250 x B x 256 x 256 x 3) x 4 bytes
             # i.e: 0.20 GB per batch dimension
             if len(episode) <= 250:
@@ -141,9 +141,14 @@ def collate_episodes(episodes):
         prev_actions.append(_prev_actions)
 
         if episode.depth:
-            depths.append(torch.as_tensor(episode.get_depth_sequence())) # float
-            # TODO: if temporal, slice the depths
-            # TODO: if flip, flip the depths
+            depth_sequence = episode.get_depth_sequence().reshape(-1, 256, 256, 1)
+            if temporal_aug:
+                depth_sequence = depth_sequence[start[i]:end[i]]
+
+            if flip_aug:
+                depth_sequence = torch.as_tensor(depth_sequence).flip(dims=(1,))
+
+            depths.append(torch.as_tensor(depth_sequence).type(torch.float))
 
         if episode.rgb:
             rgb_sequence = episode.get_rgb_sequence()
@@ -173,7 +178,7 @@ def collate_episodes(episodes):
                 rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float)).permute(0,2,3,1)
 
             if flip_aug:
-                rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,)) # prevent -1 stride
+                rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,))
 
             rgbs.append(torch.as_tensor(rgb_sequence).type(torch.uint8))
 
