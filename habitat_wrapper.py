@@ -176,13 +176,8 @@ class Rollout:
 
     def act_student(self):
         if self.proxy == 'semantic':
-            semantic = self.observations['semantic']
-            onehot = torch.zeros(*semantic.shape, HabitatDataset.NUM_SEMANTIC_CLASSES, dtype=torch.long)
-            for idx, _class in enumerate(HabitatDataset.top10):
-                onehot[..., idx] = torch.as_tensor(semantic == _class)
-
+            onehot = HabitatDataset.make_semantic(self.observations['semantic'])
             proxy = onehot.unsqueeze(dim=0).float()
-            #print(proxy.shape)
         else:
             proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
         proxy = proxy.to(self.device)

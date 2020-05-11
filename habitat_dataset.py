@@ -50,7 +50,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         start = time.time()
         data = get_episodes(Path(dataset_dir) / split)
-        print(f'{split}: {len(data)} in {time.time()-start}s')
+        print(f'{split}: {len(data)} in {time.time()-start:.2f}s')
 
         if dagger:
             return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
@@ -84,9 +84,9 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
         idx = 0
         for length in range(0, 250):
             if length not in self.length_idx:
-                length_idx[length] = idx
+                self.length_idx[length] = idx
             else:
-                idx = length_idx[length]
+                idx = self.length_idx[length]
 
     def __len__(self):
         return len(self.batches) // self.batch_size
@@ -100,13 +100,12 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
 
             yield batch
 
+random_crop = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
 def collate_episodes(episodes):
-    aug = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
-
     depths, rgbs, segs, actions, prev_actions, metas = [], [], [], [], [], []
     for i, episode in enumerate(episodes):
         flip_aug = np.random.random() < 0.50
-        _actions = episode.actions
+        _actions = episode.actions.clone().detach()
         if flip_aug:
             left  = _actions == 2
             right = _actions == 3
@@ -123,6 +122,7 @@ def collate_episodes(episodes):
 
         if episode.depth:
             depths.append(torch.as_tensor(episode.get_depth_sequence())) # float
+            # TODO: if flip, flip the depth
 
         if episode.rgb:
             rgb_sequence = episode.get_rgb_sequence()
@@ -131,13 +131,13 @@ def collate_episodes(episodes):
             # input: numpy T x H x W x C; i.e: T x 256 x 256 x 3
             # output: torch, same dims
             p = np.random.uniform(0., 1.)
-            if p < 0.20: # random crop; ratio from RAD paper
+            if p < 0.10: # random crop; ratio from RAD paper
                 #print('random crop')
-                rgb_sequence = aug(images=rgb_sequence)
-            elif p < 0.35: # random cutout; ratio from RAD paper
+                rgb_sequence = random_crop(images=rgb_sequence)
+            elif p < 0.15: # random cutout; ratio from RAD paper
                 #print('random cutout')
                 rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
-            elif p < 0.50: # random cutout color; ratio from RAD paper
+            elif p < 0.20: # random cutout color; ratio from RAD paper
                 #print('random cutout color')
                 rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
 
@@ -156,6 +156,7 @@ def collate_episodes(episodes):
 
         if episode.semantic:
             segs.append(torch.as_tensor(episode.get_semantic_sequence()).type(torch.uint8))
+            # TODO: if flip, flip the depth
 
         #worker_info = torch.utils.data.get_worker_info()
         #print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] {(time.time()-start):.02f}')
@@ -267,17 +268,18 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     NUM_SEMANTIC_CLASSES = 10
     top10 = np.array([1, 2, 17, 4, 40, 0, 9, 7, 5, 3])
-    def get_semantic_sequence(self):
-        if not self.semantic_f:
-            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
 
-        semantic = self.semantic_f[:]
-
+    @staticmethod
+    def make_onehot(semantic):
         onehot = torch.zeros(*semantic.shape, HabitatDataset.NUM_SEMANTIC_CLASSES, dtype=torch.long)
         for idx, _class in enumerate(HabitatDataset.top10):
             onehot[..., idx] = torch.as_tensor(semantic == _class)
-        #return semantic[..., np.newaxis].astype(np.float32) / 41
         return onehot
+
+    def get_semantic_sequence(self):
+        if not self.semantic_f:
+            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
+        return make_onehot(self.semantic_f[:])
 
     def __getitem__(self, idx):
         rgb = 0
@@ -286,14 +288,11 @@ class HabitatDataset(torch.utils.data.Dataset):
                 self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
             rgb = self.rgb_f[idx]
 
-        """
         seg = 0
         if self.semantic:
-            #_segs = torch.empty((len(episode), 256, 256, HabitatDataset.NUM_SEMANTIC_CLASSES))
             if not self.semantic_f:
                 self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
-            seg = HabitatDataset._make_semantic(self.semantic_f)
-        """
+            seg = HabitatDataset.make_semantic(self.semantic_f[idx])
 
         action = self.actions[idx]
         prev_action = self.actions[idx-1] if idx > 0 else torch.zeros_like(action)

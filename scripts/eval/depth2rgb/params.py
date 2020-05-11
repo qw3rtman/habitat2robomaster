@@ -68,7 +68,15 @@ models = [
     #('/scratch/cluster/nimit/wandb/run-20200505_170505-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_250.t7', False)
     #('/scratch/cluster/nimit/wandb/run-20200505_170505-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_260.t7', False)
     #('/scratch/cluster/nimit/wandb/run-20200505_170505-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_260.t7', False)
-    ('/scratch/cluster/nimit/wandb/run-20200505_170505-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_270.t7', False)
+    #('/scratch/cluster/nimit/wandb/run-20200505_170505-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_270.t7', False)
+    ('/scratch/cluster/nimit/wandb/run-20200503_073114-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.005-0.0005-v5.03-aug/model_120.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_184704-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.001-0.0001-v5.03-aug/model_090.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073134-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.001-0.0005-v5.03-aug/model_090.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073133-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.005-0.0005-v5.03-aug/model_090.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073133-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-16-0.005-0.0001-v5.03-aug/model_070.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073008-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.005-0.0001-v5.03-aug/model_060.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073731-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.001-0.0001-v5.03-aug/model_050.t7', True),
+    ('/scratch/cluster/nimit/wandb/run-20200503_073133-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.001-0.0005-v5.03-aug/model_040.t7', True)
 
     #('/scratch/cluster/nimit/wandb/run-20200503_054756-se_resneXt50-bc-backprop-depth2rgb-gibson-noaug-original-1.0-8-0.0001-5e-05-v4.27/model_150.t7', False),
 ]

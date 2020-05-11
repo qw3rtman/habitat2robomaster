@@ -130,7 +130,7 @@ if __name__ == '__main__':
     net.batch_size=1
     net.eval()
 
-    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}-special"
+    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}-new"
     wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=get_model_args(parsed.model))
     wandb.run.summary['episode'] = 0
 
