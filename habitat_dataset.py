@@ -82,7 +82,7 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
             idx += len(indices)
 
         idx = 0
-        for length in range(0, 250):
+        for length in range(0, 251):
             if length not in self.length_idx:
                 self.length_idx[length] = idx
             else:
@@ -93,9 +93,12 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
 
     def __iter__(self):
         for _ in range(len(self)):
-            length = 250 * random.random() # uniformly sample episode lengths
-            start_idx = min(len(self.batches) - self.batch_size, self.length_idx[length])
-            batch = self.batches[start_idx:start_idx+self.batch_size]
+            start = len(self.batches)
+            while start + self.batch_size >= len(self.batches):
+                length = np.random.randint(250) # uniformly sample episode lengths
+                start = np.random.randint(self.length_idx[length], len(self.batches))
+
+            batch = self.batches[start:start+self.batch_size]
             random.shuffle(batch)
 
             yield batch

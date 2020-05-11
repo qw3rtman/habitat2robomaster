@@ -74,20 +74,20 @@ chunk_sizes = { # pretrained > target > gpu
         }
     },
     False: {
-        'rgb': {
+        'rgb': { # 32 MiB per sample in graph; 0.79 MiB per sample to hold; ~700 MiB for model
             'GeForce GTX 1080': { # 8 GB
-                8:   (8, 120),
-                16:  (5, 150), # whole sequence can fit
-                32:  (4, 50),
-                64:  (2, 24), # 
-                128: (1, 12),  # 263.42 img/sec
+                #8:   (8, 120), #
+                #16:  (6, 96),  # 8024 MiB / 8119 MiB; 
+                32:  (6, 36),  # 7623 MiB / 8119 MiB; ~12 min/epoch
+                64:  (3, 18),  # 7473 MiB / 8119 MiB; ~11 min/epoch
+                #128: (1, 12),  # 263.42 img/sec
             },
             'GeForce GTX 1080 Ti': { # 11 GB
-                8:   (10, 120),
-                16:  (8, 100),
-                32:  (4, 72),
-                64:  (2, 36),
-                128: (1, 18)
+                #8:   (10, 120),
+                #16:  (8, 100),
+                32:  (8, 72),
+                64:  (4, 36),
+                #128: (1, 18)
             }
         }, 'semantic': {
             'GeForce GTX 1080': { # 8 GB
@@ -169,7 +169,7 @@ def pass_sequence(net, criterion, target, action, prev_action, meta, mask, confi
     net.clean() # start episode!
     net.hidden_states.detach_()
 
-    target_batch = pad_sequence(target)
+    target_batch = pad_sequence(target).float()
     #print('pass_sequence')
     #print(mask.sum().item(), target_batch.shape)
 
@@ -189,8 +189,8 @@ def get_target(depth, rgb, semantic, config):
     if config['student_args']['target'] == 'depth':
         return depth
     if config['student_args']['target'] == 'semantic':
-        return semantic.float()
-    return rgb.float()
+        return semantic
+    return rgb
 
 
 def validate(net, env, data, config):
@@ -401,7 +401,7 @@ if __name__ == '__main__':
 
     run_name = '-'.join(map(str, [
         parsed.resnet_model,
-        'bc', parsed.method, 'pretrained' if parsed.pretrained else ''                                        # training paradigm
+        'bc', parsed.method, 'pretrained' if parsed.pretrained else 'scratch'                                 # training paradigm
         f'{parsed.proxy}2{parsed.target}',                                                                    # modalities
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
@@ -435,7 +435,7 @@ if __name__ == '__main__':
                 },
 
             'data_args': {
-                'num_workers': 2 if parsed.method != 'feedforward' else 4,
+                'num_workers': 1 if parsed.method != 'feedforward' else 4,
 
                 'scene': parsed.scene,                         # the simulator's evaluation scene
                 'dataset_dir': parsed.dataset_dir,
