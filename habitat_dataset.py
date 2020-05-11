@@ -102,14 +102,30 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
 
 random_crop = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
 def collate_episodes(episodes):
+    lengths = np.fromiter(map(len, episodes), dtype=np.uint8)
+    length = np.random.randint(*(np.array([0.5, 0.8]) * min(lengths)))
+    start = (np.random.random(size=len(episodes)) * (lengths-length)).astype(np.uint8)
+    end = start + length
+
     depths, rgbs, segs, actions, prev_actions, metas = [], [], [], [], [], []
     for i, episode in enumerate(episodes):
-        flip_aug = np.random.random() < 0.50
+        _meta = episode.meta.clone().detach()
         _actions = episode.actions.clone().detach()
+
+        temporal_aug = np.random.random() < 0.50
+        if temporal_aug:
+            print('temporal')
+            _meta = _meta[start[i]:end[i]] - _meta[end[i]]
+            _actions = _actions[start[i]:end[i]]
+
+        flip_aug = np.random.random() < 0.50
         if flip_aug:
-            left  = _actions == 2
-            right = _actions == 3
+            _meta = np.multiply(_meta, np.array([-1., 1.]), dtype=np.float32)
+            left, right = _actions == 2, _actions == 3
             _actions[left], _actions[right] = 3, 2 # left <-> right
+
+        #metas.append(episode.compass)
+        metas.append(_meta)
         actions.append(_actions)
 
         _prev_actions = torch.empty_like(actions[-1])
@@ -117,15 +133,15 @@ def collate_episodes(episodes):
         _prev_actions[1:].copy_(actions[-1][:-1])
         prev_actions.append(_prev_actions)
 
-        metas.append(episode.meta)
-        #metas.append(episode.compass)
-
         if episode.depth:
             depths.append(torch.as_tensor(episode.get_depth_sequence())) # float
-            # TODO: if flip, flip the depth
+            # TODO: if temporal, slice the depths
+            # TODO: if flip, flip the depths
 
         if episode.rgb:
             rgb_sequence = episode.get_rgb_sequence()
+            if temporal_aug:
+                rgb_sequence = rgb_sequence[start[i]:end[i]]
 
             # visual augmentation (https://arxiv.org/pdf/2004.14990.pdf)
             # input: numpy T x H x W x C; i.e: T x 256 x 256 x 3
@@ -154,9 +170,12 @@ def collate_episodes(episodes):
 
             rgbs.append(torch.as_tensor(rgb_sequence).type(torch.uint8))
 
+        print(rgbs[-1].shape, actions[-1].shape, metas[-1].shape, prev_actions[-1].shape)
+
         if episode.semantic:
             segs.append(torch.as_tensor(episode.get_semantic_sequence()).type(torch.uint8))
-            # TODO: if flip, flip the depth
+            # TODO: if temporal, slice the semantics
+            # TODO: if flip, flip the semantics
 
         #worker_info = torch.utils.data.get_worker_info()
         #print(f'[{worker_info.id}] [{i:03}/{len(episodes)}] {(time.time()-start):.02f}')
@@ -279,7 +298,7 @@ class HabitatDataset(torch.utils.data.Dataset):
     def get_semantic_sequence(self):
         if not self.semantic_f:
             self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
-        return make_onehot(self.semantic_f[:])
+        return HabitatDataset.make_onehot(self.semantic_f[:])
 
     def __getitem__(self, idx):
         rgb = 0
