@@ -102,6 +102,9 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
 
 random_crop = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
 def collate_episodes(episodes):
+    """
+    no augmentation: 20%
+    """
     lengths = np.fromiter(map(len, episodes), dtype=np.uint8)
     length = np.random.randint(*(np.array([0.5, 0.8]) * min(lengths)))
     start = (np.random.random(size=len(episodes)) * (lengths-length)).astype(np.uint8)
@@ -112,13 +115,14 @@ def collate_episodes(episodes):
         _meta = episode.meta.clone().detach()
         _actions = episode.actions.clone().detach()
 
-        temporal_aug = np.random.random() < 0.50
+        # encourages augmentation in goal specification
+        temporal_aug = np.random.random() < 0.40
         if temporal_aug:
-            print('temporal')
             _meta = _meta[start[i]:end[i]] - _meta[end[i]]
             _actions = _actions[start[i]:end[i]]
 
-        flip_aug = np.random.random() < 0.50
+        # visual augmentation
+        flip_aug = np.random.random() < 0.40
         if flip_aug:
             _meta = np.multiply(_meta, np.array([-1., 1.]), dtype=np.float32)
             left, right = _actions == 2, _actions == 3
@@ -150,18 +154,18 @@ def collate_episodes(episodes):
             if p < 0.10: # random crop; ratio from RAD paper
                 #print('random crop')
                 rgb_sequence = random_crop(images=rgb_sequence)
-            elif p < 0.15: # random cutout; ratio from RAD paper
+            elif p < 0.175: # random cutout; ratio from RAD paper
                 #print('random cutout')
                 rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
-            elif p < 0.20: # random cutout color; ratio from RAD paper
+            elif p < 0.25: # random cutout color; ratio from RAD paper
                 #print('random cutout color')
                 rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
 
             p = np.random.uniform(0., 1.)
-            if p < 0.15: # random grayscale
+            if p < 0.10: # random grayscale
                 #print('random grayscale')
                 rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
-            elif p < 0.30: # color aug; slow, but apparently important
+            elif p < 0.25: # color aug; slow, but apparently important
                 #print('color jitter')
                 rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float)).permute(0,2,3,1)
 
@@ -169,8 +173,6 @@ def collate_episodes(episodes):
                 rgb_sequence = torch.as_tensor(rgb_sequence).flip(dims=(2,)) # prevent -1 stride
 
             rgbs.append(torch.as_tensor(rgb_sequence).type(torch.uint8))
-
-        print(rgbs[-1].shape, actions[-1].shape, metas[-1].shape, prev_actions[-1].shape)
 
         if episode.semantic:
             segs.append(torch.as_tensor(episode.get_semantic_sequence()).type(torch.uint8))
