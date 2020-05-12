@@ -11,19 +11,28 @@ parser.add_argument('--glob', type=str, required=True)
 parser.add_argument('--compass', action='store_true')
 parsed = parser.parse_args()
 
-runs = []
-for run_dir in root.glob(parsed.glob):
+runs = {}
+run_dirs = list(root.glob(parsed.glob))
+run_dirs.sort(key=os.path.getmtime)
+for run_dir in run_dirs:
     key = '-'.join(run_dir.stem.split('-')[2:])
     models = list(run_dir.glob('model_*.t7'))
     models.sort(key=os.path.getmtime)
-    runs.append((models[-1], parsed.compass))
+
+    if len(models) == 0:
+        continue
+    model = models[-1]
+    epoch = int(model.stem.split('_')[1].split('.')[0])
+
+    runs[key] = model, epoch
 
 jobs = list()
-for (model, compass) in runs:
+for (model, epoch) in runs.values():
     job = f"""GLOG_minloglevel=2 MAGNUM_LOG=quiet python eval_hc.py \\
     --model {model} \\
+    --epoch {epoch} \\
     --split val \\
-    {'--compass' if compass else ''}
+    {'--compass' if parsed.compass else ''}
 """
 
     jobs.append(job)

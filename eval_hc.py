@@ -51,7 +51,7 @@ def _eval_scene(scene, parsed):
     sensors = ['RGB_SENSOR']
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
-    else:
+    elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
     env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
 
@@ -113,9 +113,25 @@ def get_model_args(model, key=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, required=True)
+    parser.add_argument('--epoch', type=int, required=True)
     parser.add_argument('--split', required=True)
     parser.add_argument('--compass', action='store_true')
+    parser.add_argument('--redo', action='store_true')
     parsed = parser.parse_args()
+
+    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}-new"
+    exists = False
+    if not parsed.redo:
+        try:
+            api = wandb.Api()
+            run = api.run(f'qw3rtman/pointgoal-rgb2depth-eval/{run_name}')
+            exists = True
+        except:
+            pass
+
+    if exists:
+        print('already evaluated this model; check wandb')
+        raise SystemExit
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     teacher_args = get_model_args(parsed.model, 'teacher_args')
@@ -123,15 +139,18 @@ if __name__ == '__main__':
     data_args = get_model_args(parsed.model, 'data_args')
 
     input_channels = 3
-    if student_args['target'] == 'semantic':
+    if student_args['target'] == 'depth':
+        input_channels = 1
+    elif student_args['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
     net = get_model(**student_args, tgt_mode='ddppo' if parsed.compass else 'nimit', input_channels=input_channels).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()
 
-    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-{parsed.model.stem}-{parsed.split}-new"
-    wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=get_model_args(parsed.model))
+    config = get_model_args(parsed.model)
+    config['epoch'] = parsed.epoch
+    wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
     if student_args['target'] == 'semantic':

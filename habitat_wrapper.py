@@ -175,11 +175,14 @@ class Rollout:
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
 
     def act_student(self):
-        if self.proxy == 'semantic':
+        if self.proxy == 'depth':
+            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
+        elif self.proxy == 'rgb':
+            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
+        elif self.proxy == 'semantic':
             onehot = HabitatDataset.make_semantic(self.observations['semantic'])
             proxy = onehot.unsqueeze(dim=0).float()
-        else:
-            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
+
         proxy = proxy.to(self.device)
 
         if self.task == 'dontcrash':
