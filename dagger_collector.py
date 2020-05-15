@@ -1,5 +1,6 @@
 from pathlib import Path
 import yaml
+import os
 import argparse
 
 import wandb
@@ -12,20 +13,24 @@ from habitat_dataset import HabitatDataset
 from model import get_model
 import random
 
-BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 1500, 20, 25
+BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 1500, 25, 10
 success, spl, softspl = [], [], []
 def collect(scene, parsed):
-    split = f'{parsed.split}' if student_args['target'] == 'semantic' else f'{parsed.split}_ddppo'
-    sensors.append('DEPTH_SENSOR')
+    split = 'train' if (student_args['target'] == 'semantic' or datasets[scene] == 'mp3d') else 'train_ddppo'
+    print(split, datasets[scene])
+    sensors = ['DEPTH_SENSOR']
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
     elif student_args['target'] == 'rgb':
-        sensors = ['RGB_SENSOR']
-    env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=datasets[scene], sensors=sensors, scenes=scene, compass=parsed.compass)
+        sensors.append('RGB_SENSOR')
+    env = Rollout(task='pointgoal', save=student_args['target'], proxy=student_args['target'], student=net, split=split, mode='student', rnn=student_args['rnn'], shuffle=True, dataset=datasets[scene], sensors=sensors, scenes=scene)
 
     print(f'[!] Start {scene}')
-    for ep in range(NUM_EPISODES):
-        save_episode(env, data_args['dagger_dir'])
+    for ep in range(ep_start, ep_start+NUM_EPISODES):
+        split_dir = dagger_dir/'train' if np.random.random() < 0.95 else dagger_dir/'val'
+        episode_dir = split_dir/f'{scene}-{ep:06}'
+        episode_dir.mkdir(parents=True, exist_ok=True)
+        save_episode(env, episode_dir)
 
         metrics = env.env.get_metrics()
         success.append(metrics['success'])
@@ -66,7 +71,9 @@ if __name__ == '__main__':
     teacher_args = get_model_args(parsed.model, 'teacher_args')
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
-    data_args['dagger_dir'].mkdir(parents=True, exist_ok=True)
+
+    dagger_dir = Path(data_args['dagger_dir'])
+    dagger_dir.mkdir(parents=True, exist_ok=True)
 
     input_channels = 3
     if student_args['target'] == 'depth':
@@ -85,7 +92,12 @@ if __name__ == '__main__':
     wandb.run.summary['episode'] = 0
 
     # count number of directories, if over 1000, delete the NUM_SCENES*NUM_EPISODES oldest ones
-    episodes = list(data_args['dagger_dir'].iterdir())
+    episodes = list((dagger_dir/'train').iterdir()) + list((dagger_dir/'val').iterdir())
+    
+    ep_start = 0
+    if len(episodes) > 0:
+        ep_start = max([int(episode.stem.split('-')[-1]) for episode in episodes]) + 1
+    print(ep_start)
     if len(episodes) > BUFFER_CAPACITY:
         episodes.sort(key=os.path.getmtime)
 
@@ -105,7 +117,7 @@ if __name__ == '__main__':
         datasets[scene] = 'mp3d'
 
     scenes = mp3d_scenes
-    if student_args['target'] == 'rgb': # + Gibson
+    if student_args['target'] in ['rgb', 'depth']: # + Gibson
         with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
             splits = pd.read_csv(csv_f)
         gibson_scenes = splits[splits['train'] ==1]['id'].tolist()
@@ -115,11 +127,15 @@ if __name__ == '__main__':
         scenes += gibson_scenes
 
     random.shuffle(scenes)
-
+    print(scenes)
     with torch.no_grad():
-        for i, scene in enumerate(scenes):
+        i = 0
+        while i < len(scenes):
+            scene = scenes[i]
             if i >= NUM_SCENES:
                 break
+
+            i += 1
             if scene not in available_scenes:
                 continue
             collect(scene, parsed)

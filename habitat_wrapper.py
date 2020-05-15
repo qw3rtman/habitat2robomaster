@@ -66,9 +66,8 @@ SPLIT = {
                   'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'}
 }
 
-REMAINING_ORACLE = 0
 class Rollout:
-    def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
+    def __init__(self, task, proxy, save='rgb', mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert mode in MODES
@@ -80,6 +79,7 @@ class Rollout:
 
         self.task = task
         self.proxy = proxy
+        self.save = save
         self.mode = mode
         self.student = student
         self.rnn = rnn
@@ -121,6 +121,7 @@ class Rollout:
         self.env = Env(config=env_config) # scene, etc.
         #######################################################################
 
+        self.remaining_oracle = 0
         self.transform = transforms.ToTensor()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -263,14 +264,16 @@ class Rollout:
 
             self.i += 1
 
-            if self.mode == 'both': # wp 0.1, take the expert action
-                if np.random.random() > 0.25:
-                    REMAINING_ORACLE += 5
+            if self.mode == 'both': # wp 0.15, take the expert action for 5 steps
+                if np.random.random() > 0.15:
+                    self.remaining_oracle += 5
 
-                if REMAINING_ORACLE:
+                if self.remaining_oracle > 0:
                     self.observations = self.env.step(action['teacher'])
                 else:
                     self.observations = self.env.step(action['student'])
+
+                self.remaining_oracle = max(0, self.remaining_oracle-1)
             else:
                 self.observations = self.env.step(action[self.mode])
 
@@ -318,14 +321,14 @@ def save_episode(env, episode_dir):
 
         lwns = max(lwns, longest)
 
-        if 'depth' in step and step['depth'] is not None:
+        if env.save=='depth' and 'depth' in step and step['depth'] is not None:
             depths.append(step['depth'])
 
-        if 'rgb' in step and step['rgb'] is not None:
+        if env.save=='rgb' and 'rgb' in step and step['rgb'] is not None:
             rgbs.append(step['rgb'])
             #Image.fromarray(step['rgb']).save(episode_dir / f'rgb_{i:04}.png')
 
-        if 'semantic' in step and step['semantic'] is not None:
+        if env.save=='semantic' and 'semantic' in step and step['semantic'] is not None:
             segs.append(step['semantic'])
             #np.savez_compressed(episode_dir / f'seg_{i:04}', semantic=step['semantic'])
 

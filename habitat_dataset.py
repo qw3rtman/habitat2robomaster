@@ -86,7 +86,11 @@ def get_dataset(dataset_dir, seed=False, interpolate=False, rnn=False, capacity=
 
         if rnn:
             bucket_batch_sampler = BucketBatchSampler(data, batch_size)
-            return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes, batch_sampler=bucket_batch_sampler) # samples == episodes
+
+            num_episodes = 512 if is_train else 32
+            if not seed:
+                num_episodes = 256 if is_train else 16 # should be < NUM_SCENES*EPISODES_PER_SCENE
+            return StaticWrap(EpisodeDataset(data), batch_size, num_episodes, num_workers, collate_fn=collate_episodes, batch_sampler=bucket_batch_sampler) # samples == episodes
         else:
             return StaticWrap(data, batch_size, 25000 if is_train else 2500, num_workers)                                          # samples == # steps
 
