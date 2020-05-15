@@ -15,7 +15,7 @@ import zarr
 import argparse
 from operator import itemgetter
 from itertools import repeat
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 import subprocess
 import random
 import time
@@ -23,9 +23,10 @@ import time
 from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
+NUM_EPISODES_DAGGER = 5
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, depth=False, rgb=True, semantic=False, **kwargs):
+def get_dataset(dataset_dir, seed=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, depth=False, rgb=True, semantic=False, **kwargs):
 
     @memory.cache
     def get_episodes(split_dir):
@@ -34,7 +35,7 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            episode = HabitatDataset(episode_dir, is_seed=dagger, interpolate=interpolate, augmentation=augmentation, depth=depth, rgb=rgb, semantic=semantic)
+            episode = HabitatDataset(episode_dir, interpolate=interpolate, augmentation=augmentation, depth=depth, rgb=rgb, semantic=semantic)
             # bounds memory usage by (250 x B x 256 x 256 x 3) x 4 bytes
             # i.e: 0.20 GB per batch dimension
             if len(episode) <= 250:
@@ -45,16 +46,45 @@ def get_dataset(dataset_dir, dagger=False, interpolate=False, rnn=False, capacit
 
         return data
 
+    @memory.cache
+    def get_seed_episodes(split_dir):
+        # pick 5 episodes from each scene as starter
+        # (332+90)*120*5 = ~250k
+        episode_dirs = list(split_dir.iterdir())
+
+        freq = defaultdict(int)
+        data = []
+        for i, episode_dir in enumerate(episode_dirs):
+            scene = episode_dir.stem.split('-')[0]
+            if freq[scene] == NUM_EPISODES_DAGGER:
+                continue
+            episode = HabitatDataset(episode_dir, interpolate=interpolate, augmentation=augmentation, depth=depth, rgb=rgb, semantic=semantic)
+
+            # bounds memory usage by (250 x B x 256 x 256 x 3) x 4 bytes
+            # i.e: 0.20 GB per batch dimension
+            if len(episode) <= 250:
+                freq[scene] += 1
+                data.append(episode)
+
+            if sum(freq.values()) == NUM_EPISODES_DAGGER * (332+90):
+                break
+
+            if i % 500 == 0:
+                print(f'[{sum(freq.values()):04}/{NUM_EPISODES_DAGGER}]')
+
+        return data
+
     def make_dataset(is_train):
         split = 'train' if is_train else 'val'
 
         start = time.time()
-        data = get_episodes(Path(dataset_dir) / split)
+        if seed:
+            data = get_seed_episodes(Path(dataset_dir) / split)
+        else:
+            data = get_episodes(Path(dataset_dir) / split)
         print(f'{split}: {len(data)} in {time.time()-start:.2f}s')
 
-        if dagger:
-            return DynamicWrap(data, batch_size, 100000 if is_train else 10000, num_workers, capacity=capacity)                    # samples == # steps
-        elif rnn:
+        if rnn:
             bucket_batch_sampler = BucketBatchSampler(data, batch_size)
             return StaticWrap(EpisodeDataset(data), batch_size, 500 if is_train else 50, num_workers, collate_fn=collate_episodes, batch_sampler=bucket_batch_sampler) # samples == episodes
         else:
@@ -105,9 +135,6 @@ class BucketBatchSampler(torch.utils.data.sampler.Sampler):
 
 random_crop = iaa.KeepSizeByResize(iaa.Crop((10, 40), keep_size=False), interpolation="cubic")
 def collate_episodes(episodes):
-    """
-    no augmentation: 20%
-    """
     lengths = np.fromiter(map(len, episodes), dtype=np.uint8)
     length = np.random.randint(*(np.array([0.5, 0.8]) * min(lengths)))
     start = (np.random.random(size=len(episodes)) * (lengths-length)).astype(np.uint8)
@@ -219,7 +246,7 @@ class EpisodeDataset(torch.utils.data.Dataset):
 obstacles = np.uint8([1, 6, 8, 9, 10, 12, 19, 38, 39, 40])
 walkable = np.uint8([2])
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, is_seed=False, interpolate=False, augmentation=False, depth=False, rgb=True, semantic=False):
+    def __init__(self, episode_dir, interpolate=False, augmentation=False, depth=False, rgb=True, semantic=False):
         if not isinstance(episode_dir, Path):
             episode_dir = Path(episode_dir)
 
@@ -260,8 +287,6 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         # DAgger
         self.episode_idx = 0
-        self.loss = 0.0 # kick out these seeded ones first
-        self.is_seed = is_seed
 
     def __len__(self):
         return self.actions.shape[0]
@@ -330,9 +355,6 @@ class HabitatDataset(torch.utils.data.Dataset):
 
         # rgb, mapview, segmentation, action, meta, episode, prev_action
         return rgb, 0, seg, action, meta, self.episode_idx, prev_action
-
-    def __lt__(self, other):
-        return self.loss < other.loss
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

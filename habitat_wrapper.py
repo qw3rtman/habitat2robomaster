@@ -66,6 +66,7 @@ SPLIT = {
                   'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'}
 }
 
+REMAINING_ORACLE = 0
 class Rollout:
     def __init__(self, task, proxy, mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
         assert task in TASKS
@@ -263,7 +264,13 @@ class Rollout:
             self.i += 1
 
             if self.mode == 'both': # wp 0.1, take the expert action
-                self.observations = self.env.step(action['student'])# if np.random.random() > 0.05 else action['teacher'])
+                if np.random.random() > 0.25:
+                    REMAINING_ORACLE += 5
+
+                if REMAINING_ORACLE:
+                    self.observations = self.env.step(action['teacher'])
+                else:
+                    self.observations = self.env.step(action['student'])
             else:
                 self.observations = self.env.step(action[self.mode])
 

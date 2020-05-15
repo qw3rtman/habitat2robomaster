@@ -202,10 +202,9 @@ def get_target(depth, rgb, semantic, config):
     return rgb
 
 
-def validate(net, env, data, config):
+def validate(net, data, config):
     net.eval()
     net.batch_size = config['data_args']['batch_size']
-    #env.mode = 'student'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
@@ -235,10 +234,9 @@ def validate(net, env, data, config):
     return np.mean(losses)
 
 
-def train(net, env, data, optim, config):
+def train(net, data, optim, config):
     net.train()
     net.batch_size = config['data_args']['batch_size']
-    #env.mode = 'teacher'
 
     losses = list()
     criterion = torch.nn.CrossEntropyLoss()
@@ -282,6 +280,19 @@ def checkpoint_project(net, optim, scheduler, config):
     torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
 
 
+def _get_dataset(config, dagger=False):
+    target_args = {
+        'depth': config['student_args']['target']=='depth',
+        'rgb': config['student_args']['target']=='rgb',
+        'semantic': config['student_args']['target']=='semantic'
+    }
+
+    if dagger:
+        data_args = {**config['data_args'], 'dataset_dir': config['data_args']['dagger_dir']}
+        return get_dataset(**data_args, **target_args, seed=False)
+
+    return get_dataset(**config['data_args'], **target_args, seed=True)
+
 def main(config):
     input_channels = 3
     if config['student_args']['target'] == 'depth':
@@ -322,25 +333,16 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75],
             gamma=0.5)
 
-    data_train, data_val = get_dataset(**config['data_args'], depth=config['student_args']['target']=='depth', rgb=config['student_args']['target']=='rgb', semantic=config['student_args']['target']=='semantic')
-
-    """ simulator
-    #env_train = Rollout(**config['teacher_args'], student=net, rnn=True, split='train')
-    sensors = ['RGB_SENSOR']
-    if config['student_args']['target'] == 'semantic': # NOTE: computing semantic is slow
-        sensors.append('SEMANTIC_SENSOR')
-    #env_val = Rollout(task=config['teacher_args']['task'], proxy=config['student_args']['target'], mode='student', student=net, rnn=config['student_args']['rnn'], shuffle=True, split='val', dataset=config['data_args']['scene'], sensors=sensors, gpu_id=1)
-    """
-    env_val = None
-
     project_name = 'habitat-{}-{}-student'.format(
             config['teacher_args']['task'], config['teacher_args']['proxy'])
     wandb.init(project=project_name, config=config, id=config['run_name'], resume='auto')
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
 
     if wandb.run.resumed:
+        data_train, data_val = _get_dataset(config, dagger=True)
         resume_project(net, optim, scheduler, config)
     else:
+        data_train, data_val = _get_dataset(config, dagger=False)
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
@@ -349,9 +351,9 @@ def main(config):
 
         checkpoint_project(net, optim, scheduler, config)
 
-        loss_train = train(net, env_val, data_train, optim, config)
+        loss_train = train(net, data_train, optim, config)
         with torch.no_grad():
-            loss_val = validate(net, env_val, data_val, config)
+            loss_val = validate(net, data_val, config)
 
         scheduler.step()
 
@@ -363,30 +365,20 @@ def main(config):
             wandb.run.summary['best_val_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
 
-        """
-        spl_mean = all_spl[-1].mean() if len(all_spl) > 0 else 0.0
-        if spl_mean > wandb.run.summary.get('best_spl', -np.inf):
-            wandb.run.summary['best_spl'] = spl_mean
-            wandb.run.summary['best_spl_epoch'] = wandb.run.summary['epoch']
-
-        soft_spl_mean = all_soft_spl[-1].mean() if len(all_soft_spl) > 0 else 0.0
-        if soft_spl_mean > wandb.run.summary.get('best_soft_spl', -np.inf):
-            wandb.run.summary['best_soft_spl'] = soft_spl_mean
-            wandb.run.summary['best_soft_spl_epoch'] = wandb.run.summary['epoch']
-        """
-
         if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
+
+        if epoch % 5 == 0:
+            raise SystemExit
 
 def get_run_name(parsed):
     return '-'.join(map(str, [
         parsed.resnet_model,
-        'bc', parsed.method, 'pretrained' if parsed.pretrained else 'scratch'                                 # training paradigm
+        'dagger', parsed.method, 'pretrained' if parsed.pretrained else 'scratch'                                 # training paradigm
         f'{parsed.proxy}2{parsed.target}',                                                                    # modalities
         parsed.scene, 'aug' if parsed.augmentation else 'noaug', 'reduced' if parsed.reduced else 'original', # dataset
         parsed.dataset_size, parsed.batch_size, parsed.lr, parsed.weight_decay                                # boring stuff
     ])) + f'-v{parsed.description}'
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -407,6 +399,7 @@ if __name__ == '__main__':
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--dagger_dir', type=Path, required=True)
     parser.add_argument('--scene', type=str, required=True)
     parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
@@ -451,6 +444,7 @@ if __name__ == '__main__':
                 'num_workers': 1 if parsed.method != 'feedforward' else 4,
 
                 'scene': parsed.scene,                         # the simulator's evaluation scene
+                'dagger_dir': parsed.dagger_dir,
                 'dataset_dir': parsed.dataset_dir,
                 'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
