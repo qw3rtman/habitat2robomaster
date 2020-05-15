@@ -21,7 +21,7 @@ def collect(scene, parsed):
         sensors.append('SEMANTIC_SENSOR')
     elif student_args['target'] == 'rgb':
         sensors = ['RGB_SENSOR']
-    env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
+    env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=datasets[scene], sensors=sensors, scenes=scene, compass=parsed.compass)
 
     print(f'[!] Start {scene}')
     for ep in range(NUM_EPISODES):
@@ -84,19 +84,6 @@ if __name__ == '__main__':
     wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
-    if student_args['target'] == 'semantic':
-        with open('splits/mp3d_train.txt', 'r') as f:
-            scenes = [scene.strip() for scene in f.readlines()]
-        available_scenes = scenes
-    else:
-        available_scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')]
-        with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
-            splits = pd.read_csv(csv_f)
-        scenes = splits[splits['train'] ==1]['id'].tolist()
-
-    random.shuffle(available_scenes)
-    available_scenes = set(available_scenes[:NUM_SCENES])
-
     # count number of directories, if over 1000, delete the NUM_SCENES*NUM_EPISODES oldest ones
     episodes = list(data_args['dagger_dir'].iterdir())
     if len(episodes) > BUFFER_CAPACITY:
@@ -109,8 +96,30 @@ if __name__ == '__main__':
         for episode_dir in prune:
             shutil.rmtree(episode_dir)
 
+    datasets = {}
+    available_scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')] + [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/train/content').glob('*.gz')]
+
+    with open('splits/mp3d_train.txt', 'r') as f:
+        mp3d_scenes = [scene.strip() for scene in f.readlines()]
+    for scene in mp3d_scenes:
+        datasets[scene] = 'mp3d'
+
+    scenes = mp3d_scenes
+    if student_args['target'] == 'rgb': # + Gibson
+        with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
+            splits = pd.read_csv(csv_f)
+        gibson_scenes = splits[splits['train'] ==1]['id'].tolist()
+        for scene in gibson_scenes:
+            datasets[scene] = 'gibson'
+
+        scenes += gibson_scenes
+
+    random.shuffle(scenes)
+
     with torch.no_grad():
-        for scene in scenes:
+        for i, scene in enumerate(scenes):
+            if i >= NUM_SCENES:
+                break
             if scene not in available_scenes:
                 continue
             collect(scene, parsed)

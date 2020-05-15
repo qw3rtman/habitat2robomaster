@@ -40,7 +40,7 @@ if __name__ == '__main__':
     while True:
         # 1. run train script
         print('training...')
-        subprocess.run(['python', 'train_pointgoal_student_rnn_dagger.py']+sys.argv[1:])
+        subprocess.run(['python', 'train_pointgoal_dagger_student_rnn.py']+sys.argv[1:])
 
         # 2. copy config.yaml to checkpoint dir
         run_dirs = list((root/'wandb').glob(f'*{run_name}'))
