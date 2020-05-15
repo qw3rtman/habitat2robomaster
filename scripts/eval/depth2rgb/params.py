@@ -3,7 +3,6 @@ from pathlib import Path
 import argparse
 import os
 
-
 root = Path('/scratch/cluster/nimit/wandb')
 
 parser = argparse.ArgumentParser()

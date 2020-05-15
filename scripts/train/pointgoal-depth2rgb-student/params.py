@@ -4,7 +4,7 @@ from datetime import datetime
 
 jobs = list()
 unique = datetime.now().strftime("%-m.%d")
-#unique = '4.27'
+unique = '5.11'
 
 for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth2rgb', 'gibson')]: # validate in gibson habitat challenge 2019 val
     for method, batch_sizes in [('backprop', [32, 64])]: #, ('tbptt', [8, 16])]: # ('feedforward', [64, 128])
@@ -15,7 +15,7 @@ for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth
                         job = f"""python train_pointgoal_student_rnn.py \\
     --description {unique} \\
     --augmentation \\
-    --max_epoch 400 \\
+    --max_epoch 1000 \\
     --resnet_model {resnet_model} \\
     --dataset_dir {dataset_dir} \\
     --scene {scene} \\

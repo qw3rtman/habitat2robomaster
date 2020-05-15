@@ -272,13 +272,13 @@ def resume_project(net, optim, scheduler, config):
     print('Resumed at epoch %d.' % wandb.run.summary['epoch'])
 
     net.load_state_dict(torch.load(config['checkpoint_dir'] / 'model_latest.t7'))
-    optim.load_state_dict(torch.load(config['checkpoint_dir'] / 'optim_latest.t7'))
+    #optim.load_state_dict(torch.load(config['checkpoint_dir'] / 'optim_latest.t7'))
     scheduler.load_state_dict(torch.load(config['checkpoint_dir'] / 'scheduler_latest.t7'))
 
 
 def checkpoint_project(net, optim, scheduler, config):
     torch.save(net.state_dict(), config['checkpoint_dir'] / 'model_latest.t7')
-    torch.save(optim.state_dict(), config['checkpoint_dir'] / 'optim_latest.t7')
+    #torch.save(optim.state_dict(), config['checkpoint_dir'] / 'optim_latest.t7')
     torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
 
 

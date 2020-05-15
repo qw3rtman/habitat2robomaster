@@ -119,13 +119,13 @@ def collate_episodes(episodes):
         _actions = episode.actions.clone().detach()
 
         # encourages augmentation in goal specification
-        temporal_aug = np.random.random() < 0.40
+        temporal_aug = np.random.random() < 0.00
         if temporal_aug:
             _meta = _meta[start[i]:end[i]] - _meta[end[i]]
             _actions = _actions[start[i]:end[i]]
 
         # visual augmentation
-        flip_aug = np.random.random() < 0.40
+        flip_aug = np.random.random() < 0.0
         if flip_aug:
             _meta = np.multiply(_meta, np.array([-1., 1.]), dtype=np.float32)
             left, right = _actions == 2, _actions == 3
@@ -162,18 +162,18 @@ def collate_episodes(episodes):
             if p < 0.10: # random crop; ratio from RAD paper
                 #print('random crop')
                 rgb_sequence = random_crop(images=rgb_sequence)
-            elif p < 0.175: # random cutout; ratio from RAD paper
+            elif p < 0.10: # random cutout; ratio from RAD paper
                 #print('random cutout')
                 rgb_sequence = data_augs.random_cutout(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
-            elif p < 0.25: # random cutout color; ratio from RAD paper
+            elif p < 0.10: # random cutout color; ratio from RAD paper
                 #print('random cutout color')
                 rgb_sequence = data_augs.random_cutout_color(rgb_sequence.transpose(0,3,1,2), min_cut=25, max_cut=76).transpose(0,2,3,1)
 
             p = np.random.uniform(0., 1.)
-            if p < 0.10: # random grayscale
+            if p < 0.00: # random grayscale
                 #print('random grayscale')
                 rgb_sequence = 255.*data_augs.random_grayscale(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255.), p=1.0).permute(0,2,3,1)
-            elif p < 0.25: # color aug; slow, but apparently important
+            elif p < 0.00: # color aug; slow, but apparently important
                 #print('color jitter')
                 rgb_sequence = 255*data_augs.random_color_jitter(torch.as_tensor(rgb_sequence.transpose(0,3,1,2)/255., dtype=torch.float)).permute(0,2,3,1)
 
