@@ -213,16 +213,17 @@ def validate(net, data, config):
     # static validation set
     for i, x in enumerate(tqdm.tqdm(data, desc='val', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
-            depth, rgb, _, semantic, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, get_target(depth, rgb, semantic, config), action, meta, config, optim=None)
+            rgb, _, semantic, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, get_target(0, rgb, semantic, config), action, meta, config, optim=None)
         else:
             depth, rgb, semantic, action, prev_action, meta, mask = x
             loss_mean = pass_sequence(net, criterion, get_target(depth, rgb, semantic, config), action, prev_action, meta, mask, config, optim=None)
 
         losses.append(loss_mean)
+        num_images = rgb.shape[0] if config['student_args']['method'] == 'feedforward' else mask.sum().item()
         metrics = {
             'loss': loss_mean,
-            'images_per_second': mask.sum().item() / (time.time() - tick)
+            'images_per_second': num_images / (time.time() - tick)
         }
 
         wandb.log(
@@ -244,17 +245,18 @@ def train(net, data, optim, config):
 
     for i, x in enumerate(tqdm.tqdm(data, desc='train', total=len(data), leave=False)):
         if config['student_args']['method'] == 'feedforward':
-            depth, rgb, _, semantic, action, meta, _, _ = x
-            loss_mean = pass_single(net, criterion, get_target(depth, rgb, semantic, config), action, meta, config, optim=optim)
+            rgb, _, semantic, action, meta, _, _ = x
+            loss_mean = pass_single(net, criterion, get_target(0, rgb, semantic, config), action, meta, config, optim=optim)
         else:
             depth, rgb, semantic, action, prev_action, meta, mask = x
             loss_mean = pass_sequence(net, criterion, get_target(depth, rgb, semantic, config), action, prev_action, meta, mask, config, optim=optim)
 
         losses.append(loss_mean)
         wandb.run.summary['step'] += 1
+        num_images = rgb.shape[0] if config['student_args']['method'] == 'feedforward' else mask.sum().item()
         metrics = {
             'loss': loss_mean,
-            'images_per_second': mask.sum().item() / (time.time() - tick)
+            'images_per_second': num_images / (time.time() - tick)
         }
 
         wandb.log(
@@ -346,7 +348,7 @@ def main(config):
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
-    for epoch in tqdm.tqdm(range(wandb.run.summary['epoch'], config['max_epoch']+1), desc='epoch'):
+    for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
         checkpoint_project(net, optim, scheduler, config)
@@ -368,7 +370,7 @@ def main(config):
         if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
-        if epoch % 5 == 0:
+        if epoch % 5 == 4:
             raise SystemExit
 
 def get_run_name(parsed):

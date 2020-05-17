@@ -2,6 +2,7 @@ from pathlib import Path
 import yaml
 import os
 import argparse
+import shutil
 
 import wandb
 import torch
@@ -13,7 +14,7 @@ from habitat_dataset import HabitatDataset
 from model import get_model
 import random
 
-BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 1500, 25, 10
+BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 768, 32, 8
 success, spl, softspl = [], [], []
 def collect(scene, parsed):
     split = 'train' if (student_args['target'] == 'semantic' or datasets[scene] == 'mp3d') else 'train_ddppo'
@@ -23,14 +24,14 @@ def collect(scene, parsed):
         sensors.append('SEMANTIC_SENSOR')
     elif student_args['target'] == 'rgb':
         sensors.append('RGB_SENSOR')
-    env = Rollout(task='pointgoal', save=student_args['target'], proxy=student_args['target'], student=net, split=split, mode='student', rnn=student_args['rnn'], shuffle=True, dataset=datasets[scene], sensors=sensors, scenes=scene)
+    env = Rollout(task='pointgoal', save=student_args['target'], proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=split, mode='both', rnn=student_args['rnn'], shuffle=True, dataset=datasets[scene], sensors=sensors, scenes=scene)
+    env.epoch = parsed.epoch # for beta term in DAgger
 
     print(f'[!] Start {scene}')
     for ep in range(ep_start, ep_start+NUM_EPISODES):
         split_dir = dagger_dir/'train' if np.random.random() < 0.95 else dagger_dir/'val'
         episode_dir = split_dir/f'{scene}-{ep:06}'
-        episode_dir.mkdir(parents=True, exist_ok=True)
-        save_episode(env, episode_dir)
+        save_episode(env, episode_dir, max_len=200)
 
         metrics = env.env.get_metrics()
         success.append(metrics['success'])
@@ -65,6 +66,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--epoch', type=int, required=True)
+    parser.add_argument('--dagger_dir', type=Path)
     parsed = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -72,8 +74,10 @@ if __name__ == '__main__':
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
 
-    dagger_dir = Path(data_args['dagger_dir'])
+    dagger_dir = Path(parsed.dagger_dir) if parsed.dagger_dir is not None else Path(data_args['dagger_dir'])
     dagger_dir.mkdir(parents=True, exist_ok=True)
+    (dagger_dir/'train').mkdir(parents=True, exist_ok=True)
+    (dagger_dir/'val').mkdir(parents=True, exist_ok=True)
 
     input_channels = 3
     if student_args['target'] == 'depth':
@@ -92,8 +96,8 @@ if __name__ == '__main__':
     wandb.run.summary['episode'] = 0
 
     # count number of directories, if over 1000, delete the NUM_SCENES*NUM_EPISODES oldest ones
-    episodes = list((dagger_dir/'train').iterdir()) + list((dagger_dir/'val').iterdir())
-    
+    episodes = list((dagger_dir/'train').iterdir()) #+ list((dagger_dir/'val').iterdir())
+
     ep_start = 0
     if len(episodes) > 0:
         ep_start = max([int(episode.stem.split('-')[-1]) for episode in episodes]) + 1
@@ -106,7 +110,7 @@ if __name__ == '__main__':
         prune = random.sample(prunable_episodes, num_prune)
 
         for episode_dir in prune:
-            shutil.rmtree(episode_dir)
+            shutil.rmtree(episode_dir, ignore_errors=True)
 
     datasets = {}
     available_scenes = [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')] + [scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/train/content').glob('*.gz')]

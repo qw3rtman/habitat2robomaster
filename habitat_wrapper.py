@@ -67,9 +67,10 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, save='rgb', mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
+    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, rnn=False, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
+        assert target in MODALITIES
         assert mode in MODES
         assert dataset in DATAPATH.keys()
         assert dataset in SPLIT.keys()
@@ -79,9 +80,11 @@ class Rollout:
 
         self.task = task
         self.proxy = proxy
+        self.target = target
         self.save = save
         self.mode = mode
         self.student = student
+        self.epoch = 1
         self.rnn = rnn
         self.compass = compass
 
@@ -177,18 +180,18 @@ class Rollout:
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
 
     def act_student(self):
-        if self.proxy == 'depth':
-            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
-        elif self.proxy == 'rgb':
-            proxy = torch.as_tensor(self.observations[self.proxy]).unsqueeze(dim=0).float()
-        elif self.proxy == 'semantic':
+        if self.target == 'depth':
+            target = torch.as_tensor(self.observations[self.target]).unsqueeze(dim=0).float()
+        elif self.target == 'rgb':
+            target = torch.as_tensor(self.observations[self.target]).unsqueeze(dim=0).float()
+        elif self.target == 'semantic':
             onehot = HabitatDataset.make_semantic(self.observations['semantic'])
-            proxy = onehot.unsqueeze(dim=0).float()
+            target = onehot.unsqueeze(dim=0).float()
 
-        proxy = proxy.to(self.device)
+        target = target.to(self.device)
 
         if self.task == 'dontcrash':
-            out = self.student((proxy,))
+            out = self.student((target,))
         elif self.task == 'pointgoal':
             if self.compass:
                 meta = torch.as_tensor(self.observations['pointgoal_with_gps_compass'])
@@ -197,12 +200,12 @@ class Rollout:
             meta = meta.unsqueeze(dim=0).to(self.device)
 
             if self.rnn:
-                out = self.student((proxy, meta, self.prev_action, self.mask))
+                out = self.student((target, meta, self.prev_action, self.mask))
             else:
-                out = self.student((proxy, meta))
+                out = self.student((target, meta))
 
-        self.prev_action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device)
-        return {'action': self.prev_action.item()}, out # action, logits
+        action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device).item()
+        return {'action': action}, out # action, logits
 
     def get_action(self):
         if self.mode == 'student':
@@ -227,6 +230,8 @@ class Rollout:
         self.state = self.env.sim.get_agent_state()
         if self.student != None and hasattr(self.student, 'clean'):
             self.student.clean()
+
+        self.remaining_oracle = 0
 
         while not self.env.episode_over:
             action = self.get_action()
@@ -264,14 +269,14 @@ class Rollout:
 
             self.i += 1
 
-            if self.mode == 'both': # wp 0.15, take the expert action for 5 steps
-                if np.random.random() > 0.15:
-                    self.remaining_oracle += 5
+            if self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
+                if np.random.random() <= 15/self.epoch:
+                    self.remaining_oracle += 2
 
-                if self.remaining_oracle > 0:
-                    self.observations = self.env.step(action['teacher'])
-                else:
-                    self.observations = self.env.step(action['student'])
+                _action = action['teacher'] if self.remaining_oracle > 0 else action['student']
+                self.prev_action[0] = _action['action']
+                self.agent.prev_actions[0, 0] = _action['action']
+                self.observations = self.env.step(_action)
 
                 self.remaining_oracle = max(0, self.remaining_oracle-1)
             else:
@@ -302,13 +307,18 @@ def get_episode(env):
         return steps
     """
 
-def save_episode(env, episode_dir):
+def save_episode(env, episode_dir, max_len=-1):
     stats = list()
-
     depths, rgbs, segs = [], [], []
-
     lwns, longest, length = 0, 0, 0
-    for i, step in enumerate(get_episode(env)):
+
+    episode = get_episode(env)
+    if max_len > -1:
+        episode = list(episode)
+        if len(episode) >= max_len or len(episode) < 4: # don't save
+            return
+
+    for i, step in enumerate(episode):
         length += 1
 
         """
@@ -352,6 +362,7 @@ def save_episode(env, episode_dir):
             'l': step['rotation'][3]
         })
 
+    episode_dir.mkdir(parents=True, exist_ok=True)
     if len(depths) > 0:
         compressor = Blosc(cname='zstd', clevel=3)
         z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depths), 256, 256), chunks=False, dtype='f4', compressor=compressor)
@@ -388,6 +399,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_episodes', type=int, required=True)
     parser.add_argument('--task', choices=TASKS, required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
+    parser.add_argument('--target', choices=MODELS.keys()) # use with student
     parser.add_argument('--mode', choices=MODES, required=True)
     parser.add_argument('--shuffle', action='store_true')
     parser.add_argument('--dataset', choices=DATAPATH.keys(), required=True)
@@ -410,7 +422,7 @@ if __name__ == '__main__':
     if parsed.semantic:
         sensors.append('SEMANTIC_SENSOR')
 
-    env = Rollout(parsed.task, parsed.proxy, parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.dataset, scenes=[parsed.scene], sensors=sensors)
+    env = Rollout(parsed.task, parsed.proxy, parsed.target, mode=parsed.mode, shuffle=parsed.shuffle, split=parsed.split, dataset=parsed.dataset, scenes=[parsed.scene], sensors=sensors)
 
     ep = int(summary['ep'])
     ending_ep = ep + parsed.num_episodes

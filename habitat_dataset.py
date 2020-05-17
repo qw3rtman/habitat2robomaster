@@ -28,7 +28,7 @@ NUM_EPISODES_DAGGER = 5
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, seed=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, depth=False, rgb=True, semantic=False, **kwargs):
 
-    @memory.cache
+    #@memory.cache
     def get_episodes(split_dir):
         episode_dirs = list(split_dir.iterdir())
         num_episodes = int(max(1, kwargs.get('dataset_size', 1.0) * len(episode_dirs)))
@@ -262,6 +262,8 @@ class HabitatDataset(torch.utils.data.Dataset):
         with open(self.episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
         x = np.genfromtxt(measurements, delimiter=',', dtype=np.float32)
+        if len(x.shape) == 1:
+            x = x.reshape((1, -1))
         self.positions = torch.as_tensor(x[:, 5:8])
         self.rotations = torch.as_tensor(x[:, 8:])
         self.actions = torch.LongTensor(x[:, 1])

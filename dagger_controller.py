@@ -53,6 +53,7 @@ if __name__ == '__main__':
         shutil.copy(run_dirs[-1]/'config.yaml', checkpoint/'config.yaml')
 
         # 3. get epoch
+        api.flush()
         run = api.run(f'qw3rtman/habitat-pointgoal-depth-student/{run_name}')
 
         # 4. run collect_dagger script
