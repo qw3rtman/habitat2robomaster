@@ -14,7 +14,7 @@ from habitat_dataset import HabitatDataset
 from model import get_model
 import random
 
-BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 768, 32, 8
+BUFFER_CAPACITY, NUM_SCENES, NUM_EPISODES = 700, 32, 8
 success, spl, softspl = [], [], []
 def collect(scene, parsed):
     split = 'train' if (student_args['target'] == 'semantic' or datasets[scene] == 'mp3d') else 'train_ddppo'
@@ -33,24 +33,25 @@ def collect(scene, parsed):
         episode_dir = split_dir/f'{scene}-{ep:06}'
         save_episode(env, episode_dir, max_len=200)
 
-        metrics = env.env.get_metrics()
-        success.append(metrics['success'])
-        spl.append(metrics['spl'])
-        softspl.append(metrics['softspl'])
+        if episode_dir.exists():
+            metrics = env.env.get_metrics()
+            success.append(metrics['success'])
+            spl.append(metrics['spl'])
+            softspl.append(metrics['softspl'])
 
-        log = {
-            'success_mean': np.mean(success),
-            'success_median': np.median(success),
-            'spl_mean': np.mean(spl),
-            'spl_median': np.median(spl),
-            'softspl_mean': np.mean(softspl),
-            'softspl_median': np.median(softspl)
-        }
+            log = {
+                'success_mean': np.mean(success),
+                'success_median': np.median(success),
+                'spl_mean': np.mean(spl),
+                'spl_median': np.median(spl),
+                'softspl_mean': np.mean(softspl),
+                'softspl_median': np.median(softspl)
+            }
 
-        wandb.run.summary['episode'] += 1
-        wandb.log(
-                {('%s/%s' % ('val', k)): v for k, v in log.items()},
-                step=wandb.run.summary['episode'])
+            wandb.run.summary['episode'] += 1
+            wandb.log(
+                    {('%s/%s' % ('val', k)): v for k, v in log.items()},
+                    step=wandb.run.summary['episode'])
 
     env.env.close()
     del env

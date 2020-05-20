@@ -12,7 +12,7 @@ for dataset_dir, scene in [('/scratch/cluster/nimit/data/habitat/pointgoal-depth
                 for lr in [1e-3, 1e-4]:
                     for weight_decay in [0.0, 5e-5]:
                         job = f"""python dagger_controller.py \\
-    --description {unique}-5 \\
+    --description {unique}-6 \\
     --max_epoch 1000 \\
     --resnet_model {resnet_model} \\
     --augmentation \\

@@ -23,7 +23,7 @@ import time
 from utils import StaticWrap, DynamicWrap
 
 ACTIONS = torch.eye(4)
-NUM_EPISODES_DAGGER = 5
+NUM_EPISODES_DAGGER = 25
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, seed=False, interpolate=False, rnn=False, capacity=2000, batch_size=128, num_workers=0, augmentation=False, depth=False, rgb=True, semantic=False, **kwargs):

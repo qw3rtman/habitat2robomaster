@@ -270,7 +270,8 @@ class Rollout:
             self.i += 1
 
             if self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
-                if np.random.random() <= 15/self.epoch:
+                beta = 0.9 * (0.95**(self.epoch/5))
+                if np.random.random() <= beta:
                     self.remaining_oracle += 2
 
                 _action = action['teacher'] if self.remaining_oracle > 0 else action['student']
@@ -279,8 +280,12 @@ class Rollout:
                 self.observations = self.env.step(_action)
 
                 self.remaining_oracle = max(0, self.remaining_oracle-1)
-            else:
-                self.observations = self.env.step(action[self.mode])
+            elif self.mode == 'student':
+                self.prev_action[0] = action['student']['action']
+                self.observations = self.env.step(action['student'])
+            elif self.mode == 'teacher':
+                self.agent.prev_actions[0, 0] = action['teacher']['action']
+                self.observations = self.env.step(action['teacher'])
 
 def rollout_episode(env):
     steps = list()

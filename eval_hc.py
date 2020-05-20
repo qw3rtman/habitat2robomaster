@@ -53,7 +53,7 @@ def _eval_scene(scene, parsed):
         sensors.append('SEMANTIC_SENSOR')
     elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
-    env = Rollout(task='pointgoal', proxy=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
+    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
 
     print(f'[!] Start {scene}')
     success = np.zeros(NUM_EPISODES)
@@ -67,7 +67,8 @@ def _eval_scene(scene, parsed):
     for ep in range(NUM_EPISODES):
         total += 1
 
-        net.clean()
+        if student_args['rnn']:
+            net.clean()
         images = []
 
         for i, step in enumerate(get_episode(env)):
@@ -124,7 +125,7 @@ if __name__ == '__main__':
     if not parsed.redo:
         try:
             api = wandb.Api()
-            run = api.run(f'qw3rtman/pointgoal-rgb2depth-eval/{run_name}')
+            run = api.run(f'qw3rtman/pointgoal-rgb2depth-eval-hc/{run_name}')
             exists = True
         except:
             pass
@@ -150,21 +151,22 @@ if __name__ == '__main__':
 
     config = get_model_args(parsed.model)
     config['epoch'] = parsed.epoch
-    wandb.init(project='pointgoal-rgb2depth-eval', id=run_name, config=config)
+    config['split'] = parsed.split
+    wandb.init(project='pointgoal-rgb2depth-eval-hc', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
     if student_args['target'] == 'semantic':
-        with open('splits/mp3d_val.txt', 'r') as f:
+        with open(f'splits/mp3d_{parsed.split}.txt', 'r') as f:
             scenes = [scene.strip() for scene in f.readlines()]
         available_scenes = scenes
         print(scenes)
     else:
         #available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')])
-        available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/val_ddppo/content').glob('*.gz')])
+        available_scenes = set([scene.stem.split('.')[0] for scene in Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{parsed.split}_ddppo/content').glob('*.gz')])
         with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
             splits = pd.read_csv(csv_f)
         #scenes = splits[splits['train'] ==1]['id'].tolist()
-        scenes = splits[splits['val'] ==1]['id'].tolist()
+        scenes = splits[splits[parsed.split] ==1]['id'].tolist()
     with torch.no_grad():
         for scene in scenes:
             if scene not in available_scenes:
