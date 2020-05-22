@@ -73,11 +73,10 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
 
     # TODO: should support gibson+mp3d, not just gibson
-    # TODO: manage scenes
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
             config['student_args']['target'], mode='teacher',
             shuffle=False, split='train', dataset='gibson')
-    replay_buffer = ReplayBuffer(2**15, dshape=(256,256,3), dtype=torch.uint8)
+    replay_buffer = ReplayBuffer(2**18, dshape=(256,256,3), dtype=torch.uint8)
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
     dataset = replay_buffer.get_dataset()
     data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
@@ -94,8 +93,12 @@ def main(config):
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
-        for _ in range(128 if epoch <= 2 else 64):
-            replay_episode(env, replay_buffer, student=net)
+        if epoch > 1:
+            env.env._episode_iterator.max_scene_repeat_episodes = 16
+
+        # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
+        for _ in range(512 if epoch > 1 else 1328):
+            replay_episode(env, replay_buffer, score_by=net)
 
         loss_train = loop(net, data, replay_buffer, env, optim, config, mode='train')
         scheduler.step()
