@@ -312,6 +312,27 @@ def get_episode(env):
         return steps
     """
 
+
+def replay_episode(env, replay_buffer, student=None):
+    criterion = torch.nn.CrossEntropyLoss(reduction='mean')
+    if student:
+        student.eval()
+
+    for step in get_episode(env):
+        target = np.uint8(step['rgb'])
+        compass = np.float32([step['compass_r'], step['compass_t']])
+        action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
+        if student is not None:
+            _target = torch.as_tensor(target, device=env.device).unsqueeze(dim=0)
+            _compass = torch.as_tensor(compass, device=env.device).unsqueeze(dim=0)
+            __action = student((_target, _compass))
+            _action = torch.as_tensor([action], device=env.device)
+
+            loss = criterion(__action, _action)
+
+        replay_buffer.insert(target, compass, action, loss=loss.item())
+
+
 def save_episode(env, episode_dir, max_len=-1):
     stats = list()
     depths, rgbs, segs = [], [], []
