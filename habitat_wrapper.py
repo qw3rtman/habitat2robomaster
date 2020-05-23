@@ -9,6 +9,7 @@ from numcodecs import Blosc
 import zarr
 
 from pathlib import Path
+import random
 import argparse
 import time
 import shutil
@@ -323,6 +324,8 @@ def replay_episode(env, replay_buffer, score_by=None):
         target = np.uint8(step['rgb'])
         goal = np.float32([step['compass_r'], np.cos(-step['compass_t']), np.sin(-step['compass_t'])])
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
+
+        loss = random.random()
         if score_by is not None:
             _target = torch.as_tensor(target, device=env.device).unsqueeze(dim=0)
             _goal = torch.as_tensor(goal, device=env.device).unsqueeze(dim=0)
