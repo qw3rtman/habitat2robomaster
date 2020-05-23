@@ -55,16 +55,18 @@ def loop(net, data, replay_buffer, env, optim, config, mode='train'):
     return np.mean(losses)
 
 
-def resume_project(net, scheduler, config):
+def resume_project(net, scheduler, replay_buffer, config):
     print('Resumed at epoch %d.' % wandb.run.summary['epoch'])
 
     net.load_state_dict(torch.load(config['checkpoint_dir'] / 'model_latest.t7'))
     scheduler.load_state_dict(torch.load(config['checkpoint_dir'] / 'scheduler_latest.t7'))
+    replay_buffer.load(config['checkpoint_dir'] / 'buffer')
 
 
-def checkpoint_project(net, scheduler, config):
+def checkpoint_project(net, scheduler, replay_buffer, config):
     torch.save(net.state_dict(), config['checkpoint_dir'] / 'model_latest.t7')
     torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
+    replay_buffer.save(config['checkpoint_dir'] / 'buffer', overwrite=True)
 
 
 def main(config):
@@ -77,7 +79,13 @@ def main(config):
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
             config['student_args']['target'], mode='teacher',
             shuffle=False, split='train', dataset='gibson')
+
     replay_buffer = ReplayBuffer(2**18, dshape=(256,256,3), dtype=torch.uint8)
+    starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s2%s_buffer' % \
+            (config['teacher_args']['proxy'], config['student_args']['target']))
+    if starter_buffer.exists():
+        replay_buffer.load(starter_buffer)
+
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
     dataset = replay_buffer.get_dataset()
     data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
@@ -104,7 +112,7 @@ def main(config):
         loss_train = loop(net, data, replay_buffer, env, optim, config, mode='train')
         scheduler.step()
 
-        wandb.log({'train/loss_epoch': loss_train}, step=wandb.run.summary['step'])
+        wandb.log({'train/loss_epoch': loss_train, 'buffer_capacity': replay_buffer.size}, step=wandb.run.summary['step'])
         if wandb.run.summary['epoch'] % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 

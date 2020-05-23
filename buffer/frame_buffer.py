@@ -54,19 +54,20 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.actions[:self.size] = torch.load(root/'actions.pth')
         self.losses[:self.size] = torch.load(root/'losses.pth')
 
-    def save(self, root):
+    def save(self, root, overwrite=False):
         try:
             root.mkdir(parents=True)
         except Exception:
-            print('[!] not overwriting!')
-            return
+            if overwrite:
+                print('[!] not overwriting!')
+                return
 
         with open(root/'info.txt', 'w') as f:
             f.write(f'{self.buffer_size} {self.size}')
 
         compressor = Blosc(cname='zstd', clevel=3)
         z = zarr.open(str(root/'targets'), mode='w', shape=(self.size, *self.targets.shape[1:]),
-                chunks=False, dtype=self.targets.numpy().dtype, compressor=compressor)
+                chunks=(self.buffer_size//32, -1, -1, -1), dtype=self.targets.numpy().dtype, compressor=compressor)
         z[:] = self.targets[:self.size].numpy()
 
         torch.save(self.goals[:self.size], root/'goals.pth')
