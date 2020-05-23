@@ -5,8 +5,9 @@ import numpy as np
 
 from gym import spaces
 
-from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from habitat_baselines.rl.ddppo.policy import resnet
+from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
+from habitat_baselines.common.utils import CategoricalNet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
 
 from habitat_wrapper import MODALITIES
@@ -16,18 +17,15 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_model(target, conditional=False, rnn=False, input_channels=3, **resnet_kwargs):
+def get_model(target, rnn=False, input_channels=3, **resnet_kwargs):
     if rnn:
         return ConditionalStateEncoderImitation(target, input_channels=input_channels, **resnet_kwargs)
 
-    if conditional:
-        return ConditionalImitation(target, **resnet_kwargs)
-    
-    return DirectImitation(target, **resnet_kwargs)
+    return ConditionalImitation(target, **resnet_kwargs)
 
 
-class DirectImitation(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4):
+class ConditionalImitation(nn.Module):
+    def __init__(self, target, resnet_model='resnet50', baseplanes=32, hidden_size=512, dim_actions=4, goal_size=2, **kwargs):
         super().__init__()
 
         self.target = target
@@ -36,58 +34,43 @@ class DirectImitation(nn.Module):
             self.target = 'depth'
 
         if self.target == 'depth':
+            input_channels = 1
             target_space = spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32)
         elif self.target == 'rgb':
+            input_channels = 3
             target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
 
         observation_spaces = spaces.Dict({self.target: target_space})
 
         self.visual_encoder = ResNetEncoder(
             observation_spaces,
-            baseplanes=baseplanes,
-            ngroups=ngroups,
+            baseplanes=resnet_baseplanes,
+            ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=(self.target=='rgb')
-        )
+            normalize_visual_inputs=(self.target=='rgb'),
+            input_channels=input_channels)
         
         self.visual_fc = nn.Sequential(
             Flatten(),
             nn.Linear(np.prod(self.visual_encoder.output_shape), hidden_size),
-            nn.ReLU(True)
-        )
+            nn.ReLU(True))
 
-        self.action_fc = nn.Linear(hidden_size, dim_actions)
-
-        #nn.init.orthogonal_(self.action_fc.weight, gain=0.01)
-        #nn.init.constant_(self.action_fc.bias, 0)
+        self.goal_fc = nn.Linear(goal_size, 32)
+        self.prev_action_embedding = nn.Embedding(dim_actions+1, 32)
+        self.action_distribution = CategoricalNet(32+32+hidden_size, dim_actions)
 
     def forward(self, x):
-        target = x[0]
-        visual_embedding = self.visual_encoder({self.target: target})
+        target, goal, prev_action = x
+        visual_feats = self.visual_fc(self.visual_encoder({self.target: target}))
+        goal_encoding = self.goal_fc(goal)
+        prev_action = self.prev_action_embedding((prev_action+1).long())
 
-        return self.action_fc(self.visual_fc(visual_embedding))
-
-class ConditionalImitation(DirectImitation):
-    def __init__(self, target, resnet_model='resnet50', baseplanes=32, ngroups=16, hidden_size=512, dim_actions=4, meta_size=2, **kwargs):
-        super().__init__(target, resnet_model, baseplanes, ngroups, hidden_size, dim_actions)
-
-        meta_embedding_size = hidden_size // 16
-        self.meta_fc = nn.Sequential(
-            nn.Linear(meta_size, meta_embedding_size),
-            nn.ReLU(True)
-        )
-
-        self.action_fc = nn.Linear(hidden_size + meta_embedding_size, dim_actions)
-
-    def forward(self, x):
-        target, meta = x
-        visual_embedding = self.visual_encoder({self.target: target})
-
-        return self.action_fc(torch.cat([self.visual_fc(visual_embedding), self.meta_fc(meta)], dim=1))
+        features = torch.cat([visual_feats, goal_encoding, prev_action], dim=1)
+        return self.action_distribution(features)
 
 
 class ConditionalStateEncoderImitation(nn.Module):
-    def __init__(self, target, batch_size, resnet_model='resnet50', input_channels=3, tgt_mode='ddppo', **kwargs):
+    def __init__(self, target, batch_size, resnet_model='resnet50', tgt_mode='ddppo', **kwargs):
         super(ConditionalStateEncoderImitation, self).__init__()
 
         self.target = target
@@ -96,8 +79,10 @@ class ConditionalStateEncoderImitation(nn.Module):
             self.target = 'depth'
 
         if self.target == 'depth':
+            input_channels = 1
             target_space = spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32)
         elif self.target == 'rgb':
+            input_channels = 3
             target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
 
         self.observation_spaces, self.action_spaces = spaces.Dict({

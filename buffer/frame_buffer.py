@@ -29,16 +29,17 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.size = 0
 
         self.targets = torch.empty((buffer_size, *dshape), dtype=dtype)
-        self.metas = torch.empty((buffer_size, 2), dtype=torch.float32)
+        self.goals = torch.empty((buffer_size, 2), dtype=torch.float32)
+        self.prev_actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.losses = np.empty((buffer_size), dtype=np.float32)
 
         self.rng = np.random.default_rng()
 
     def get_dataset(self):
-        return torch.utils.data.TensorDataset(self.idxs, self.targets, self.metas, self.actions)
+        return torch.utils.data.TensorDataset(self.idxs, self.targets, self.goals, self.prev_actions, self.actions)
 
-    def insert(self, target, meta, action, loss=0.):
+    def insert(self, target, goal, prev_action, action, loss=0.):
         if self.size >= self.buffer_size: # buffer full
             idx = self.losses[:self.size].argmin()
             if loss < self.losses[idx]:
@@ -48,9 +49,10 @@ class ReplayBuffer(torch.utils.data.Dataset):
             self.size += 1
 
         self.targets[idx] = torch.as_tensor(target, dtype=self.targets.dtype)
-        self.metas[idx] = torch.as_tensor(meta, dtype=torch.float32)
-        self.actions[idx] = torch.as_tensor(action, dtype=torch.uint8)
-        self.losses[idx] = torch.as_tensor(loss, dtype=torch.float32)
+        self.goals[idx] = torch.as_tensor(goal, dtype=torch.float32)
+        self.prev_actions[idx] = prev_action
+        self.actions[idx] = action
+        self.losses[idx] = loss
 
         return idx
 
@@ -68,12 +70,12 @@ class ReplayBuffer(torch.utils.data.Dataset):
         if idxs_only:
             return idxs
 
-        return idxs, self.targets[idxs], self.metas[idxs], self.actions[idxs]
+        return idxs, self.targets[idxs], self.goals[idxs], self.prev_actions[idx], self.actions[idxs]
 
     def __getitem__(self, idx):
         if (idx > self.size).any():
             raise IndexError
-        return idx, self.targets[idx], self.metas[idx], self.actions[idx]
+        return idx, self.targets[idx], self.goals[idx], self.prev_actions[idx], self.actions[idx]
 
     def __len__(self):
         return self.size

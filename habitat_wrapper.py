@@ -318,19 +318,21 @@ def replay_episode(env, replay_buffer, score_by=None):
     if score_by:
         score_by.eval()
 
+    prev_action = 0
     for step in get_episode(env):
         target = np.uint8(step['rgb'])
-        compass = np.float32([step['compass_r'], step['compass_t']])
+        goal = np.float32([step['compass_r'], np.cos(-step['compass_t']), np.sin(-step['compass_t'])])
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
         if score_by is not None:
             _target = torch.as_tensor(target, device=env.device).unsqueeze(dim=0)
-            _compass = torch.as_tensor(compass, device=env.device).unsqueeze(dim=0)
-            __action = score_by((_target, _compass))
+            _goal = torch.as_tensor(goal, device=env.device).unsqueeze(dim=0)
+            __action = score_by((_target, _goal))
             _action = torch.as_tensor([action], device=env.device)
 
-            loss = criterion(__action, _action)
+            loss = criterion(__action, _action).item()
 
-        replay_buffer.insert(target, compass, action, loss=loss.item())
+        replay_buffer.insert(target, goal, prev_action, action, loss=loss)
+        prev_action = action
 
 
 def save_episode(env, episode_dir, max_len=-1):

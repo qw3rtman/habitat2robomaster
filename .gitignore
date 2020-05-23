@@ -10,6 +10,6 @@ checkpoints/
 models/
 *.t7
 
-scripts/**/*.sh
+**/scripts/**/*.sh
 
 *.swp

@@ -12,7 +12,7 @@ import numpy as np
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 
-from model import get_model
+from model import ConditionalImitation
 from habitat_wrapper import MODELS, MODALITIES, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
 
@@ -27,12 +27,13 @@ def loop(net, data, replay_buffer, env, optim, config, mode='train'):
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
     tick = time.time()
-    for idx, target, meta, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
+    for idx, target, goal, prev_action, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
-        meta = torch.as_tensor(meta, device=config['device'], dtype=torch.float32)
+        goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
+        prev_action = torch.as_tensor(prev_action, device=config['device'], dtype=torch.int64)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
 
-        _action = net((target, meta))
+        _action = net((target, goal, prev_action)).logits
         loss = criterion(_action, action)
         loss_mean = loss.mean()
 
@@ -67,7 +68,7 @@ def checkpoint_project(net, scheduler, config):
 
 
 def main(config):
-    net = get_model(**config['student_args']).to(config['device'])
+    net = ConditionalImitation(**config['student_args'], goal_size=3).to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
@@ -168,8 +169,7 @@ if __name__ == '__main__':
                 'resnet_model': parsed.resnet_model,
                 'method': parsed.method,
                 'dagger': parsed.dagger,
-                'pretrained': parsed.pretrained,
-                'conditional': True
+                'pretrained': parsed.pretrained
                 },
 
             'data_args': {
