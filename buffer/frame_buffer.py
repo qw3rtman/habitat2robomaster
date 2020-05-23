@@ -29,7 +29,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.size = 0
 
         self.targets = torch.empty((buffer_size, *dshape), dtype=dtype)
-        self.goals = torch.empty((buffer_size, 2), dtype=torch.float32)
+        self.goals = torch.empty((buffer_size, 3), dtype=torch.float32)
         self.prev_actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.losses = np.empty((buffer_size), dtype=np.float32)

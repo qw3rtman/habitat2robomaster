@@ -25,7 +25,7 @@ def get_model(target, rnn=False, input_channels=3, **resnet_kwargs):
 
 
 class ConditionalImitation(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', baseplanes=32, hidden_size=512, dim_actions=4, goal_size=2, **kwargs):
+    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, goal_size=2, **kwargs):
         super().__init__()
 
         self.target = target
@@ -49,7 +49,7 @@ class ConditionalImitation(nn.Module):
             make_backbone=getattr(resnet, resnet_model),
             normalize_visual_inputs=(self.target=='rgb'),
             input_channels=input_channels)
-        
+
         self.visual_fc = nn.Sequential(
             Flatten(),
             nn.Linear(np.prod(self.visual_encoder.output_shape), hidden_size),

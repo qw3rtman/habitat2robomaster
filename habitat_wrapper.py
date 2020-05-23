@@ -326,7 +326,8 @@ def replay_episode(env, replay_buffer, score_by=None):
         if score_by is not None:
             _target = torch.as_tensor(target, device=env.device).unsqueeze(dim=0)
             _goal = torch.as_tensor(goal, device=env.device).unsqueeze(dim=0)
-            __action = score_by((_target, _goal))
+            _prev_action = torch.as_tensor(prev_action, device=env.device).unsqueeze(dim=0)
+            __action = score_by((_target, _goal, _prev_action)).logits
             _action = torch.as_tensor([action], device=env.device)
 
             loss = criterion(__action, _action).item()
