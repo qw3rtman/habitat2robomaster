@@ -11,7 +11,7 @@ for method, batch_sizes in [('feedforward', [128, 256])]:
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [0.0]:
                     job = f"""python buffer/train.py \\
-    --description {unique} \\
+    --description {unique}-v2 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --resnet_model {resnet_model} \\
     --method {method} \\

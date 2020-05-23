@@ -98,7 +98,7 @@ def main(config):
             env.env._episode_iterator.max_scene_repeat_episodes = 16
 
         # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
-        for _ in range(512 if epoch > 1 else 1328):
+        for _ in range(64):#512 if epoch > 1 else 1328):
             replay_episode(env, replay_buffer, score_by=net)
 
         loss_train = loop(net, data, replay_buffer, env, optim, config, mode='train')

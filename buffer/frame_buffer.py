@@ -1,6 +1,9 @@
 import torch
 import numpy as np
 
+import zarr
+from numcodecs import Blosc
+
 
 class LossSampler(torch.utils.data.sampler.Sampler):
 
@@ -38,6 +41,38 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
     def get_dataset(self):
         return torch.utils.data.TensorDataset(self.idxs, self.targets, self.goals, self.prev_actions, self.actions)
+
+    def load(self, root):
+        with open(root/'info.txt', 'r') as f:
+            buffer_size, self.size = map(int, f.readlines()[0].strip().split(' '))
+        assert buffer_size == self.buffer_size
+
+        z = zarr.open(str(root/'targets'), mode='r')
+        self.targets[:self.size] = torch.as_tensor(z[:])
+        self.goals[:self.size] = torch.load(root/'goals.pth')
+        self.prev_actions[:self.size] = torch.load(root/'prev_actions.pth')
+        self.actions[:self.size] = torch.load(root/'actions.pth')
+        self.losses[:self.size] = torch.load(root/'losses.pth')
+
+    def save(self, root):
+        try:
+            root.mkdir(parents=True)
+        except Exception:
+            print('[!] not overwriting!')
+            return
+
+        with open(root/'info.txt', 'w') as f:
+            f.write(f'{self.buffer_size} {self.size}')
+
+        compressor = Blosc(cname='zstd', clevel=3)
+        z = zarr.open(str(root/'targets'), mode='w', shape=(self.size, *self.targets.shape[1:]),
+                chunks=False, dtype=self.targets.numpy().dtype, compressor=compressor)
+        z[:] = self.targets[:self.size].numpy()
+
+        torch.save(self.goals[:self.size], root/'goals.pth')
+        torch.save(self.prev_actions[:self.size], root/'prev_actions.pth')
+        torch.save(self.actions[:self.size], root/'actions.pth')
+        torch.save(self.losses[:self.size], root/'losses.pth')
 
     def insert(self, target, goal, prev_action, action, loss=0.):
         if self.size >= self.buffer_size: # buffer full
