@@ -5,13 +5,13 @@ from datetime import datetime
 jobs = list()
 unique = datetime.now().strftime("%-m.%d")
 
-for method, batch_sizes in [('feedforward', [128, 256])]:
-    for resnet_model in ['se_resneXt50']:
+for method, batch_sizes in [('feedforward', [32, 64])]:
+    for resnet_model in ['se_resneXt101']:
         for batch_size in batch_sizes:
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [0.0]:
                     job = f"""python buffer/train.py \\
-    --description {unique}-v2 \\
+    --description {unique}-v5 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --resnet_model {resnet_model} \\
     --method {method} \\

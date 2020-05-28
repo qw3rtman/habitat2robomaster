@@ -21,7 +21,7 @@ class LossSampler(torch.utils.data.sampler.Sampler):
 
     def __len__(self):
         # this doesn't guarantee that we hit all samples
-        return len(self.replay_buffer) // self.batch_size
+        return 2 * (len(self.replay_buffer) // self.batch_size)
 
 
 class ReplayBuffer(torch.utils.data.Dataset):
@@ -40,12 +40,12 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.rng = np.random.default_rng()
 
     def get_dataset(self):
-        return torch.utils.data.TensorDataset(self.idxs, self.targets, self.goals, self.prev_actions, self.actions)
+        return torch.utils.data.TensorDataset(self.idxs[:self.size], self.targets[:self.size], self.goals[:self.size], self.prev_actions[:self.size], self.actions[:self.size])
 
     def load(self, root):
         with open(root/'info.txt', 'r') as f:
             buffer_size, self.size = map(int, f.readlines()[0].strip().split(' '))
-        assert buffer_size == self.buffer_size
+        #assert buffer_size == self.buffer_size
 
         z = zarr.open(str(root/'targets'), mode='r')
         self.targets[:self.size] = torch.as_tensor(z[:])
@@ -54,11 +54,13 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.actions[:self.size] = torch.load(root/'actions.pth')
         self.losses[:self.size] = torch.load(root/'losses.pth')
 
+        print('[!] loaded buffer')
+
     def save(self, root, overwrite=False):
         try:
             root.mkdir(parents=True)
         except Exception:
-            if overwrite:
+            if not overwrite:
                 print('[!] not overwriting!')
                 return
 
@@ -74,6 +76,8 @@ class ReplayBuffer(torch.utils.data.Dataset):
         torch.save(self.prev_actions[:self.size], root/'prev_actions.pth')
         torch.save(self.actions[:self.size], root/'actions.pth')
         torch.save(self.losses[:self.size], root/'losses.pth')
+
+        print('[!] saved buffer')
 
     def insert(self, target, goal, prev_action, action, loss=0.):
         if self.size >= self.buffer_size: # buffer full

@@ -49,11 +49,13 @@ def _eval_scene(scene, parsed):
     split = f'{parsed.split}' if student_args['target'] == 'semantic' else f'{parsed.split}_ddppo'
     print(split)
     sensors = ['RGB_SENSOR']
+    dataset='gibson'
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
+        dataset='mp3d'
     elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
-    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['rnn'], shuffle=True, dataset=data_args['scene'], sensors=sensors, scenes=scene, compass=parsed.compass)
+    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['method']!='feedforward', shuffle=True, dataset=dataset, sensors=sensors, scenes=scene, compass=parsed.compass)
 
     print(f'[!] Start {scene}')
     success = np.zeros(NUM_EPISODES)
@@ -67,7 +69,7 @@ def _eval_scene(scene, parsed):
     for ep in range(NUM_EPISODES):
         total += 1
 
-        if student_args['rnn']:
+        if student_args['method']!='feedforward':
             net.clean()
         images = []
 
@@ -144,7 +146,8 @@ if __name__ == '__main__':
         input_channels = 1
     elif student_args['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
-    net = get_model(**student_args, tgt_mode='ddppo' if parsed.compass else 'nimit', input_channels=input_channels).to(device)
+    #net = get_model(**student_args, tgt_mode='ddppo' if parsed.compass else 'nimit').to(device)
+    net = get_model(**student_args, goal_size=3).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()

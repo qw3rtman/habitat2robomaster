@@ -34,7 +34,11 @@ else: # use model_latest from checkpoints
         # copy config.yaml
         wandb_dirs = list(wandb_root.glob(f'*{key}'))
         wandb_dirs.sort(key=os.path.getmtime)
-        shutil.copy(wandb_dirs[-1]/'config.yaml', run_dir/'config.yaml')
+
+        i = -1
+        while not (wandb_dirs[i]/'config.yaml').exists():
+            i -= 1
+        shutil.copy(wandb_dirs[i]/'config.yaml', run_dir/'config.yaml')
 
         # get epoch from wandb
         run = api.run(f'qw3rtman/habitat-pointgoal-depth-student/{key}')

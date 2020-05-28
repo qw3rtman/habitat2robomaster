@@ -17,15 +17,15 @@ class Flatten(nn.Module):
         return x.view(x.size(0), -1)
 
 
-def get_model(target, rnn=False, input_channels=3, **resnet_kwargs):
+def get_model(target, rnn=False, **resnet_kwargs):
     if rnn:
-        return ConditionalStateEncoderImitation(target, input_channels=input_channels, **resnet_kwargs)
+        return ConditionalStateEncoderImitation(target, **resnet_kwargs)
 
     return ConditionalImitation(target, **resnet_kwargs)
 
 
 class ConditionalImitation(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, goal_size=2, **kwargs):
+    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, goal_size=3, **kwargs):
         super().__init__()
 
         self.target = target
@@ -56,16 +56,14 @@ class ConditionalImitation(nn.Module):
             nn.ReLU(True))
 
         self.goal_fc = nn.Linear(goal_size, 32)
-        self.prev_action_embedding = nn.Embedding(dim_actions+1, 32)
-        self.action_distribution = CategoricalNet(32+32+hidden_size, dim_actions)
+        self.action_distribution = CategoricalNet(hidden_size+32, dim_actions)
 
     def forward(self, x):
-        target, goal, prev_action = x
+        target, goal = x
         visual_feats = self.visual_fc(self.visual_encoder({self.target: target}))
         goal_encoding = self.goal_fc(goal)
-        prev_action = self.prev_action_embedding((prev_action+1).long())
 
-        features = torch.cat([visual_feats, goal_encoding, prev_action], dim=1)
+        features = torch.cat([visual_feats, goal_encoding], dim=1)
         return self.action_distribution(features)
 
 

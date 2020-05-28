@@ -195,17 +195,20 @@ class Rollout:
             out = self.student((target,))
         elif self.task == 'pointgoal':
             if self.compass:
-                meta = torch.as_tensor(self.observations['pointgoal_with_gps_compass'])
+                #goal = torch.as_tensor(self.observations['pointgoal_with_gps_compass'])
+                r, t = self.observations['pointgoal_with_gps_compass']
+                goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
             else:
-                meta = self.get_direction()
-            meta = meta.unsqueeze(dim=0).to(self.device)
+                goal = self.get_direction()
+            goal = goal.unsqueeze(dim=0).to(self.device)
 
             if self.rnn:
-                out = self.student((target, meta, self.prev_action, self.mask))
+                out = self.student((target, goal, self.prev_action, self.mask))
+                action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device).item()
             else:
-                out = self.student((target, meta))
+                out = self.student((target, goal, self.prev_action))
+                action = out.sample().item()
 
-        action = torch.distributions.Categorical(torch.softmax(out, dim=1)).sample().to(self.device).item()
         return {'action': action}, out # action, logits
 
     def get_action(self):

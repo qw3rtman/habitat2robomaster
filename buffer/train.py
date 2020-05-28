@@ -13,7 +13,7 @@ import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 
 from model import ConditionalImitation
-from habitat_wrapper import MODELS, MODALITIES, Rollout, replay_episode
+from wrapper import MODELS, MODALITIES, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
 
 
@@ -27,13 +27,12 @@ def loop(net, data, replay_buffer, env, optim, config, mode='train'):
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
     tick = time.time()
-    for idx, target, goal, prev_action, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
+    for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
         goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
-        prev_action = torch.as_tensor(prev_action, device=config['device'], dtype=torch.int64)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
 
-        _action = net((target, goal, prev_action)).logits
+        _action = net((target, goal)).logits
         loss = criterion(_action, action)
         loss_mean = loss.mean()
 
@@ -70,7 +69,7 @@ def checkpoint_project(net, scheduler, replay_buffer, config):
 
 
 def main(config):
-    net = ConditionalImitation(**config['student_args'], goal_size=3).to(config['device'])
+    net = ConditionalImitation(**config['student_args'], goal_size=3, hidden_size=1024).to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
@@ -80,21 +79,19 @@ def main(config):
             config['student_args']['target'], mode='teacher',
             shuffle=False, split='train', dataset='gibson')
 
-    replay_buffer = ReplayBuffer(2**18, dshape=(256,256,3), dtype=torch.uint8)
+    replay_buffer = ReplayBuffer(int(2e5), dshape=(256,256,3), dtype=torch.uint8)
     starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s2%s_buffer' % \
             (config['teacher_args']['proxy'], config['student_args']['target']))
     if starter_buffer.exists():
         replay_buffer.load(starter_buffer)
 
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
-    dataset = replay_buffer.get_dataset()
-    data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
 
     project_name = 'habitat-pointgoal-{}-student'.format(config['teacher_args']['proxy'])
     wandb.init(project=project_name, config=config, id=config['run_name'], resume='auto')
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
     if wandb.run.resumed:
-        resume_project(net, scheduler, config)
+        resume_project(net, scheduler, replay_buffer, config)
     else:
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
@@ -102,21 +99,23 @@ def main(config):
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
-        if epoch > 1:
-            env.env._episode_iterator.max_scene_repeat_episodes = 16
-
-        # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
-        for _ in range(64):#512 if epoch > 1 else 1328):
-            replay_episode(env, replay_buffer, score_by=net)
+        dataset = replay_buffer.get_dataset()
+        data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
 
         loss_train = loop(net, data, replay_buffer, env, optim, config, mode='train')
         scheduler.step()
+
+        # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
+        if epoch > 1:
+            env.env._episode_iterator.max_scene_repeat_episodes = 16
+        for _ in range(256):#512 if epoch > 1 else 1328):
+            replay_episode(env, replay_buffer, score_by=net)
 
         wandb.log({'train/loss_epoch': loss_train, 'buffer_capacity': replay_buffer.size}, step=wandb.run.summary['step'])
         if wandb.run.summary['epoch'] % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
-        checkpoint_project(net, scheduler, config)
+        checkpoint_project(net, scheduler, replay_buffer, config)
 
 
 def get_run_name(parsed):
