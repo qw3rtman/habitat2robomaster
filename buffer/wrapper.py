@@ -108,17 +108,15 @@ class Rollout:
         self.env = Env(config=env_config) # scene, etc.
         #######################################################################
 
-        self.remaining_oracle = 0
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def clean(self):
+        self.i = 0
         self.agent.reset()
         self.observations = self.env.reset()
-
-        self.i = 0
-
-        self.mask = torch.ones(1).to(self.device)
         self.state = self.env.sim.get_agent_state()
+        if self.student != None and hasattr(self.student, 'clean'):
+            self.student.clean()
 
     def get_direction(self):
         source_position = self.state.position
@@ -126,59 +124,54 @@ class Rollout:
         source_rotation = Quaternion(*rot[1:4], rot[0])
         goal_position = self.env.current_episode.goals[0].position
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
+    
+    def get_target(self):
+        target = self.observations[self.target]
+        if self.target == 'semantic':
+            target = HabitatDataset.make_semantic(target)
+        return target
 
-    def act_student(self):
-        if self.target == 'depth':
-            target = torch.as_tensor(self.observations[self.target]).unsqueeze(dim=0).float()
-        elif self.target == 'rgb':
-            target = torch.as_tensor(self.observations[self.target]).unsqueeze(dim=0).float()
-        elif self.target == 'semantic':
-            onehot = HabitatDataset.make_semantic(self.observations['semantic'])
-            target = onehot.unsqueeze(dim=0).float()
-
-        target = target.to(self.device)
-
-        if self.compass:
-            #goal = torch.as_tensor(self.observations['pointgoal_with_gps_compass'])
+    def act(self):
+        def act_student():
+            target = torch.as_tensor(self.get_target(), dtype=torch.float, device=self.device).unsqueeze(dim=0)
             r, t = self.observations['pointgoal_with_gps_compass']
-            goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
-        else:
-            goal = self.get_direction()
-        goal = goal.unsqueeze(dim=0).to(self.device)
+            goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float, device=self.device).unsqueeze(dim=0)
 
-        out = self.student((target, goal))
-        action = out.sample().item()
+            out = self.student((target, goal))
+            action = out.sample().item()
 
-        return {'action': action}, out # action, logits
+            return {'action': action}, out # action, logits
 
-    def get_action(self):
         if self.mode == 'student':
-            student_action, _ = self.act_student()
+            student_action, _ = act_student()
             return {'student': student_action}
-
-        if self.mode == 'teacher':
+        elif self.mode == 'teacher':
             teacher_action = self.agent.act(self.observations)
             return {'teacher': teacher_action}
-
-        if self.mode == 'both':
+        elif self.mode == 'both':
+            student_action, student_logits = act_student()
             teacher_action = self.agent.act(self.observations)
-            student_action, student_logits = self.act_student()
-            return {
-                'teacher': teacher_action,
-                'student': student_action,
-                'student_logits': student_logits
-            }
+            return {'student': student_action,
+                    'teacher': teacher_action,
+                    'student_logits': student_logits}
+
+    def step(self, action):
+        if self.mode == 'student':
+            _action = action['student']
+        elif self.mode == 'teacher':
+            _action = action['teacher']
+        elif self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
+            beta = 0.9 * (0.95**(self.epoch/5))
+            _action = action['teacher'] if np.random.random() <= beta else action['student']
+            self.agent.prev_actions[0, 0] = _action['action'] # for teacher in mode=both
+
+        self.observations = self.env.step(_action)
 
     def rollout(self, expose=True):
         self.clean()
-        self.state = self.env.sim.get_agent_state()
-        if self.student != None and hasattr(self.student, 'clean'):
-            self.student.clean()
-
-        self.remaining_oracle = 0
 
         while not self.env.episode_over:
-            action = self.get_action()
+            action = self.act()
 
             if expose:
                 self.state = self.env.sim.get_agent_state()
@@ -199,22 +192,8 @@ class Rollout:
             else:
                 yield None
 
+            self.step(action)
             self.i += 1
-
-            if self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
-                beta = 0.9 * (0.95**(self.epoch/5))
-                if np.random.random() <= beta:
-                    self.remaining_oracle += 2
-
-                _action = action['teacher'] if self.remaining_oracle > 0 else action['student']
-                self.agent.prev_actions[0, 0] = _action['action']
-                self.observations = self.env.step(_action)
-
-                self.remaining_oracle = max(0, self.remaining_oracle-1)
-            elif self.mode == 'student':
-                self.observations = self.env.step(action['student'])
-            elif self.mode == 'teacher':
-                self.observations = self.env.step(action['teacher'])
 
 
 def replay_episode(env, replay_buffer, score_by=None):
@@ -222,14 +201,10 @@ def replay_episode(env, replay_buffer, score_by=None):
     if score_by:
         score_by.eval()
 
-    env.clean()
     for step in env.rollout():
-        target = np.uint8(step['rgb'])
-        if env.compass:
-            r, t = step['compass_r'], step['compass_t']
-            goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
-        else:
-            goal = env.get_direction()
+        target = self.get_target()
+        r, t = step['compass_r'], step['compass_t']
+        goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float)
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
 
         loss = random.random()

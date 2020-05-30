@@ -146,9 +146,14 @@ class ResNetEncoder(nn.Module):
             cnn_input.append(depth_observations)
 
         x = torch.cat(cnn_input, dim=1)
+        #print(x.shape)
+        #print(x.reshape(3, -1).mean(dim=-1))
         x = F.avg_pool2d(x, 2)
-
+        #print(x.shape)
+        #print(x.reshape(3, -1).mean(dim=-1))
         x = self.running_mean_and_var(x)
+        #print(x.shape)
+        #print(x.reshape(3, -1).mean(dim=-1))
         x = self.backbone(x)
         x = self.compression(x)
         return x

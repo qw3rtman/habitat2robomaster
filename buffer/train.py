@@ -13,7 +13,7 @@ import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 
 from model import ConditionalImitation
-from wrapper import MODELS, MODALITIES, Rollout, replay_episode
+from wrapper import MODELS, MODALITIES, SPLIT, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
 
 
@@ -76,8 +76,8 @@ def main(config):
 
     # TODO: should support gibson+mp3d, not just gibson
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
-            config['student_args']['target'], mode='teacher',
-            shuffle=False, split='train', dataset='gibson')
+            config['student_args']['target'], mode='teacher', shuffle=False,
+            split='train', dataset=config['teacher_args']['dataset'])
 
     replay_buffer = ReplayBuffer(int(2e5), dshape=(256,256,3), dtype=torch.uint8)
     starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s2%s_buffer' % \
@@ -120,11 +120,12 @@ def main(config):
 
 def get_run_name(parsed):
     return '-'.join(map(str, [
-        'dagger' if parsed.dagger else 'bc', parsed.method,            # paradigm
-        parsed.resnet_model, 'pre' if parsed.pretrained else 'scratch' # model
-        f'{parsed.proxy}2{parsed.target}',                             # modalities
-        'aug' if parsed.augmentation else 'noaug',                     # dataset
-        parsed.batch_size, parsed.lr, parsed.weight_decay              # hyperparams
+        'dagger' if parsed.dagger else 'bc', parsed.method,             # paradigm
+        parsed.resnet_model, 'pre' if parsed.pretrained else 'scratch', # model
+        parsed.dataset, f'{parsed.proxy}2{parsed.target}',              # modalities
+        'polar' if parsed.compass else 'cartesian',                     # dataset
+        'aug' if parsed.augmentation else 'noaug',                      # dataset
+        parsed.batch_size, parsed.lr, parsed.weight_decay               # hyperparams
     ])) + f'-v{parsed.description}'
 
 
@@ -137,11 +138,13 @@ if __name__ == '__main__':
 
     # Teacher args.
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
+    parser.add_argument('--dataset', choices=SPLIT.keys(), required=True)
 
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', required=True)
     parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
+    parser.add_argument('--compass', action='store_true') # provided compass, else custom (x,y)
     parser.add_argument('--dagger', action='store_true')
     parser.add_argument('--pretrained', action='store_true')
 
@@ -168,10 +171,12 @@ if __name__ == '__main__':
             'gpu': torch.cuda.get_device_name(0),
 
             'teacher_args': {
-                'proxy': parsed.proxy
+                'proxy': parsed.proxy,
+                'dataset': parsed.dataset
                 },
 
             'student_args': {
+                'goal_size': 3 if parsed.compass else 2,
                 'target': parsed.target,
                 'resnet_model': parsed.resnet_model,
                 'method': parsed.method,
