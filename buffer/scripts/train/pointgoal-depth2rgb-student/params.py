@@ -16,6 +16,7 @@ for method, batch_sizes in [('feedforward', [32, 64])]:
     --resnet_model {resnet_model} \\
     --method {method} \\
     --dataset castle \\
+    --goal polar \\
     --proxy depth \\
     --target rgb \\
     --max_epoch 1000 \\

@@ -58,7 +58,7 @@ def _eval_scene(scene, parsed):
         dataset='mp3d'
     elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
-    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['method']!='feedforward', shuffle=True, dataset=dataset, sensors=sensors, scenes=scene, compass=parsed.compass)
+    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['method']!='feedforward', shuffle=True, dataset=dataset, sensors=sensors, scenes=scene, goal=parsed.goal)
 
     print(f'[!] Start {scene}')
     success = np.zeros(NUM_EPISODES)
@@ -122,7 +122,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--epoch', type=int, required=True)
     parser.add_argument('--split', required=True)
-    parser.add_argument('--compass', action='store_true')
+    parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
     parser.add_argument('--redo', action='store_true')
     parsed = parser.parse_args()
 
@@ -150,10 +150,10 @@ if __name__ == '__main__':
         input_channels = 1
     elif student_args['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
-    #net = get_model(**student_args, tgt_mode='ddppo' if parsed.compass else 'nimit').to(device)
 
-    goal_size = student_args.get('goal_size', 3 if parsed.compass else 2)
-    net = get_model(**student_args, hidden_size=1024).to(device)
+    goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
+    hidden_size = student_args.get('hidden_size', 1024)
+    net = get_model(**student_args, goal_size=goal_size, hidden_size=hidden_size).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()

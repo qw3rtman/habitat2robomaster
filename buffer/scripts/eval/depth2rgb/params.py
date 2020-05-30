@@ -13,7 +13,7 @@ parser.add_argument('--glob', type=str, required=True)
 parser.add_argument('--epoch', type=int)
 parser.add_argument('--redo', action='store_true')
 parser.add_argument('--split', type=str, default='val')
-parser.add_argument('--compass', action='store_true')
+parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
 parsed = parser.parse_args()
 
 runs = {}
@@ -62,7 +62,8 @@ for (model, epoch) in runs.values():
     --model {model} \\
     --epoch {epoch} \\
     --split {parsed.split} \\
-    {'--compass' if parsed.compass else ''} {'--redo ' if parsed.redo else ''}
+    --goal {parsed.goal} \\
+    {'--redo ' if parsed.redo else ''}
 """
 
     jobs.append(job)

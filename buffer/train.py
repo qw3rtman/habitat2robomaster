@@ -69,7 +69,7 @@ def checkpoint_project(net, scheduler, replay_buffer, config):
 
 
 def main(config):
-    net = ConditionalImitation(**config['student_args'], goal_size=3, hidden_size=1024).to(config['device'])
+    net = ConditionalImitation(**config['student_args'], goal_size=3).to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
@@ -121,10 +121,10 @@ def main(config):
 def get_run_name(parsed):
     return '-'.join(map(str, [
         'dagger' if parsed.dagger else 'bc', parsed.method,             # paradigm
-        parsed.resnet_model, 'pre' if parsed.pretrained else 'scratch', # model
+        parsed.resnet_model, parsed.hidden_size,                        # model
+        'pre' if parsed.pretrained else 'scratch',                      # model
         parsed.dataset, f'{parsed.proxy}2{parsed.target}',              # modalities
-        'polar' if parsed.compass else 'cartesian',                     # dataset
-        'aug' if parsed.augmentation else 'noaug',                      # dataset
+        parsed.goal, 'aug' if parsed.augmentation else 'noaug',         # dataset
         parsed.batch_size, parsed.lr, parsed.weight_decay               # hyperparams
     ])) + f'-v{parsed.description}'
 
@@ -143,8 +143,9 @@ if __name__ == '__main__':
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', required=True)
+    parser.add_argument('--hidden_size', type=int, required=True)
     parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
-    parser.add_argument('--compass', action='store_true') # provided compass, else custom (x,y)
+    parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
     parser.add_argument('--dagger', action='store_true')
     parser.add_argument('--pretrained', action='store_true')
 
@@ -176,9 +177,10 @@ if __name__ == '__main__':
                 },
 
             'student_args': {
-                'goal_size': 3 if parsed.compass else 2,
+                'goal_size': 3 if parsed.goal == 'polar' else 2,
                 'target': parsed.target,
                 'resnet_model': parsed.resnet_model,
+                'hidden_size': parsed.hidden_size,
                 'method': parsed.method,
                 'dagger': parsed.dagger,
                 'pretrained': parsed.pretrained

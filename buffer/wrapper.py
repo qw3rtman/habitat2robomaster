@@ -52,7 +52,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], compass=False, **kwargs):
+    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert target in MODALITIES
@@ -70,7 +70,7 @@ class Rollout:
         self.mode = mode
         self.student = student
         self.epoch = 1
-        self.compass = compass
+        self.goal = goal
 
         ####### agent config ##################################################
         agent_config = Config()
@@ -134,6 +134,8 @@ class Rollout:
     def act(self):
         def act_student():
             target = torch.as_tensor(self.get_target(), dtype=torch.float, device=self.device).unsqueeze(dim=0)
+
+            # TODO: base on parsed.goal type
             r, t = self.observations['pointgoal_with_gps_compass']
             goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float, device=self.device).unsqueeze(dim=0)
 
