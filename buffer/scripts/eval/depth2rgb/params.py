@@ -13,7 +13,6 @@ parser.add_argument('--glob', type=str, required=True)
 parser.add_argument('--epoch', type=int)
 parser.add_argument('--redo', action='store_true')
 parser.add_argument('--split', type=str, default='val')
-parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
 parsed = parser.parse_args()
 
 runs = {}
@@ -42,7 +41,7 @@ else: # use model_latest from checkpoints
 
         # get epoch from wandb
         run = api.run(f'qw3rtman/habitat-pointgoal-depth-student/{key}')
-        epoch = 10*(run.summary['epoch']//10) # floor to nearest 10
+        epoch = int(run.summary['epoch'])#10*(run.summary['epoch']//10) # floor to nearest 10
 
         run_name = f'{key}-model_{epoch:03}-{parsed.split}-new'
         if not parsed.redo:
@@ -62,7 +61,6 @@ for (model, epoch) in runs.values():
     --model {model} \\
     --epoch {epoch} \\
     --split {parsed.split} \\
-    --goal {parsed.goal} \\
     {'--redo ' if parsed.redo else ''}
 """
 

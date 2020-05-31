@@ -21,11 +21,10 @@ def get_model(target, rnn=False, **resnet_kwargs):
     if rnn:
         return ConditionalStateEncoderImitation(target, **resnet_kwargs)
 
-    return ConditionalImitation(target, **resnet_kwargs)
+    return GoalConditioned(target, **resnet_kwargs)
 
-
-class ConditionalImitation(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, goal_size=3, **kwargs):
+class GoalConditioned(nn.Module):
+    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, history_size=1, dim_actions=4, goal_size=3, **kwargs):
         super().__init__()
 
         self.target = target
@@ -35,10 +34,10 @@ class ConditionalImitation(nn.Module):
 
         if self.target == 'depth':
             input_channels = 1
-            target_space = spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.float32)
+            target_space = spaces.Box(low=0, high=1, shape=(256, 256, history_size), dtype=np.float32)
         elif self.target == 'rgb':
             input_channels = 3
-            target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3*history_size), dtype=np.uint8)
 
         observation_spaces = spaces.Dict({self.target: target_space})
 
@@ -48,7 +47,7 @@ class ConditionalImitation(nn.Module):
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
             normalize_visual_inputs=(self.target=='rgb'),
-            input_channels=input_channels)
+            input_channels=input_channels*history_size)
 
         self.visual_fc = nn.Sequential(
             Flatten(),

@@ -43,33 +43,40 @@ def get_fig(xy):
 
     return fig
 
-NUM_EPISODES = 10
-
 all_success, all_spl, all_softspl, total = {}, {}, {}, 0
-def _eval_scene(scene, parsed):
+def _eval_scene(scene, parsed, num_episodes):
     global total
 
-    split = f'{parsed.split}' if student_args['target'] == 'semantic' else f'{parsed.split}_ddppo'
+    split = f'{parsed.split}_ddppo'
+    if student_args['target'] == 'semantic' or teacher_args['dataset'] != 'gibson':
+        split = f'{parsed.split}'
     print(split)
     sensors = ['RGB_SENSOR']
-    dataset='gibson'
+    dataset=teacher_args['dataset']
+    print(dataset)
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
         dataset='mp3d'
     elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
-    env = Rollout(task='pointgoal', proxy=teacher_args['proxy'], target=student_args['target'], student=net, split=f'{split}', mode='student', rnn=student_args['method']!='feedforward', shuffle=True, dataset=dataset, sensors=sensors, scenes=scene, goal=parsed.goal)
+    print(dataset)
 
     print(f'[!] Start {scene}')
-    success = np.zeros(NUM_EPISODES)
-    spl = np.zeros(NUM_EPISODES)
-    softspl = np.zeros(NUM_EPISODES)
+    env = Rollout('pointgoal', teacher_args['proxy'],
+            student_args['target'], mode='student', shuffle=True,
+            split=split, dataset=dataset, student=net,
+            rnn=student_args['method']!='feedforward',
+            sensors=sensors, scenes=scene, goal=parsed.goal)
+
+    success = np.zeros(num_episodes)
+    spl = np.zeros(num_episodes)
+    softspl = np.zeros(num_episodes)
 
     all_success[scene] = success
     all_spl[scene] = spl
     all_softspl[scene] = softspl
 
-    for ep in range(NUM_EPISODES):
+    for ep in range(num_episodes):
         total += 1
 
         if student_args['method']!='feedforward':
@@ -95,7 +102,7 @@ def _eval_scene(scene, parsed):
         spl[ep] = metrics['spl']
         softspl[ep] = metrics['softspl']
 
-        #print(f'[{ep+1}/NUM_EPISODES] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
+        #print(f'[{ep+1}/num_episodes] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
 
         print(total)
         log = {f'{scene}_video': wandb.Video(np.array(images), fps=20, format='mp4'),
@@ -122,7 +129,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--epoch', type=int, required=True)
     parser.add_argument('--split', required=True)
-    parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
+    parser.add_argument('--goal')#, choices=['polar', 'cartesian'])
     parser.add_argument('--redo', action='store_true')
     parsed = parser.parse_args()
 
@@ -151,9 +158,9 @@ if __name__ == '__main__':
     elif student_args['target'] == 'semantic':
         input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
 
-    goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
-    hidden_size = student_args.get('hidden_size', 1024)
-    net = get_model(**student_args, goal_size=goal_size, hidden_size=hidden_size).to(device)
+    #goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
+    #hidden_size = student_args.get('hidden_size', 1024)
+    net = get_model(**student_args).to(device)# goal_size=goal_size, hidden_size=hidden_size).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()
@@ -164,23 +171,30 @@ if __name__ == '__main__':
     wandb.init(project='pointgoal-rgb2depth-eval-hc', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
-    if student_args['target'] == 'semantic':
-        with open(f'splits/mp3d_{parsed.split}.txt', 'r') as f:
-            scenes = [scene.strip() for scene in f.readlines()]
-        available_scenes = scenes
-        print(scenes)
-    else:
-        #available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')])
-        available_scenes = set([scene.stem.split('.')[0] for scene in Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{parsed.split}_ddppo/content').glob('*.gz')])
-        with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
-            splits = pd.read_csv(csv_f)
-        #scenes = splits[splits['train'] ==1]['id'].tolist()
-        scenes = splits[splits[parsed.split] ==1]['id'].tolist()
+    num_episodes = 10
+    if teacher_args['dataset'] in ['gibson', 'mp3d']:
+        if student_args['target'] == 'semantic':
+            with open(f'splits/mp3d_{parsed.split}.txt', 'r') as f:
+                scenes = [scene.strip() for scene in f.readlines()]
+            available_scenes = scenes
+            print(scenes)
+        else:
+            #available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')])
+            available_scenes = set([scene.stem.split('.')[0] for scene in Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{parsed.split}_ddppo/content').glob('*.gz')])
+            with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
+                splits = pd.read_csv(csv_f)
+            #scenes = splits[splits['train'] ==1]['id'].tolist()
+            scenes = splits[splits[parsed.split] ==1]['id'].tolist()
+    else: # castle, office
+        scenes = ['*']
+        available_scenes = set(scenes)
+        num_episodes = 100
+
     with torch.no_grad():
         for scene in scenes:
             if scene not in available_scenes:
                 continue
-            _eval_scene(scene, parsed)
+            _eval_scene(scene, parsed, num_episodes)
 
     log = {
         'spl': get_fig(all_spl),

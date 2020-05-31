@@ -12,7 +12,7 @@ import numpy as np
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 
-from model import ConditionalImitation
+from model import GoalConditioned
 from wrapper import MODELS, MODALITIES, SPLIT, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
 
@@ -59,7 +59,8 @@ def resume_project(net, scheduler, replay_buffer, config):
 
     net.load_state_dict(torch.load(config['checkpoint_dir'] / 'model_latest.t7'))
     scheduler.load_state_dict(torch.load(config['checkpoint_dir'] / 'scheduler_latest.t7'))
-    replay_buffer.load(config['checkpoint_dir'] / 'buffer')
+    if (config['checkpoint_dir'] / 'buffer').exists():
+        replay_buffer.load(config['checkpoint_dir'] / 'buffer')
 
 
 def checkpoint_project(net, scheduler, replay_buffer, config):
@@ -69,7 +70,7 @@ def checkpoint_project(net, scheduler, replay_buffer, config):
 
 
 def main(config):
-    net = ConditionalImitation(**config['student_args'], goal_size=3).to(config['device'])
+    net = GoalConditioned(**config['student_args']).to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
@@ -79,7 +80,8 @@ def main(config):
             config['student_args']['target'], mode='teacher', shuffle=False,
             split='train', dataset=config['teacher_args']['dataset'])
 
-    replay_buffer = ReplayBuffer(int(2e5), dshape=(256,256,3), dtype=torch.uint8)
+    replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
+            dshape=(256,256,3), dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
     starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s2%s_buffer' % \
             (config['teacher_args']['proxy'], config['student_args']['target']))
     if starter_buffer.exists():
@@ -121,7 +123,7 @@ def main(config):
 def get_run_name(parsed):
     return '-'.join(map(str, [
         'dagger' if parsed.dagger else 'bc', parsed.method,             # paradigm
-        parsed.resnet_model, parsed.hidden_size,                        # model
+        parsed.resnet_model, parsed.history_size, parsed.hidden_size,   # model
         'pre' if parsed.pretrained else 'scratch',                      # model
         parsed.dataset, f'{parsed.proxy}2{parsed.target}',              # modalities
         parsed.goal, 'aug' if parsed.augmentation else 'noaug',         # dataset
@@ -143,6 +145,7 @@ if __name__ == '__main__':
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
     parser.add_argument('--resnet_model', required=True)
+    parser.add_argument('--history_size', type=int, default=1)
     parser.add_argument('--hidden_size', type=int, required=True)
     parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
     parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
@@ -180,6 +183,7 @@ if __name__ == '__main__':
                 'goal_size': 3 if parsed.goal == 'polar' else 2,
                 'target': parsed.target,
                 'resnet_model': parsed.resnet_model,
+                'history_size': parsed.history_size,
                 'hidden_size': parsed.hidden_size,
                 'method': parsed.method,
                 'dagger': parsed.dagger,

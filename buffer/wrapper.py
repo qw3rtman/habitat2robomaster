@@ -198,24 +198,34 @@ class Rollout:
             self.i += 1
 
 
+# TODO: handle history_size
+# TODO: handle prev_action, if needed
 def replay_episode(env, replay_buffer, score_by=None):
+    hsize = replay_buffer.history_size
+
     criterion = torch.nn.CrossEntropyLoss(reduction='mean')
     if score_by:
         score_by.eval()
 
-    for step in env.rollout():
-        target = self.get_target()
+    target_buffer = np.empty((hsize,256,256,3), dtype=np.float32)
+    for i, step in enumerate(env.rollout()):
+        target = env.get_target()
         r, t = step['compass_r'], step['compass_t']
         goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float)
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
 
         loss = random.random()
-        if score_by is not None:
-            _target = torch.as_tensor(target, device=env.device).unsqueeze(dim=0)
+        if score_by is not None and i >= hsize:
+            _target = torch.as_tensor(target_buffer, device=env.device).unsqueeze(dim=0)
             _goal = torch.as_tensor(goal, device=env.device).unsqueeze(dim=0)
             __action = score_by((_target, _goal)).logits
             _action = torch.as_tensor([action], device=env.device)
 
             loss = criterion(__action, _action).item()
 
-        replay_buffer.insert(target, goal, 0, action, loss=loss)
+        if i >= hsize:
+            target_buffer[:-1] = target_buffer[1:]
+            target_buffer[-1] = target
+            replay_buffer.insert(target_buffer, goal, 0, action, loss=loss)
+        else:
+            target_buffer[i] = target

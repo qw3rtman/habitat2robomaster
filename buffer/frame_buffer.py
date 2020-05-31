@@ -26,13 +26,16 @@ class LossSampler(torch.utils.data.sampler.Sampler):
 
 class ReplayBuffer(torch.utils.data.Dataset):
 
-    def __init__(self, buffer_size, dshape, dtype):
+    def __init__(self, buffer_size, dshape, dtype, history_size=1, goal_size=3):
+        buffer_size //= int(history_size)
         self.buffer_size = buffer_size
+        self.history_size = int(history_size)
+
         self.idxs = torch.arange(self.buffer_size)
         self.size = 0
 
-        self.targets = torch.empty((buffer_size, *dshape), dtype=dtype)
-        self.goals = torch.empty((buffer_size, 3), dtype=torch.float32)
+        self.targets = torch.empty((buffer_size, history_size, *dshape), dtype=dtype)
+        self.goals = torch.empty((buffer_size, goal_size), dtype=torch.float32)
         self.prev_actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.actions = torch.empty((buffer_size), dtype=torch.uint8)
         self.losses = np.empty((buffer_size), dtype=np.float32)
@@ -88,8 +91,8 @@ class ReplayBuffer(torch.utils.data.Dataset):
             idx = self.size
             self.size += 1
 
-        self.targets[idx] = torch.as_tensor(target, dtype=self.targets.dtype)
-        self.goals[idx] = torch.as_tensor(goal, dtype=torch.float32)
+        self.targets[idx] = torch.tensor(target, dtype=self.targets.dtype)
+        self.goals[idx] = torch.tensor(goal, dtype=torch.float32)
         self.prev_actions[idx] = prev_action
         self.actions[idx] = action
         self.losses[idx] = loss
@@ -110,7 +113,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
         if idxs_only:
             return idxs
 
-        return idxs, self.targets[idxs], self.goals[idxs], self.prev_actions[idx], self.actions[idxs]
+        return idxs, self.targets[idxs].reshape(256, 256, -1), self.goals[idxs], self.prev_actions[idx], self.actions[idxs]
 
     def __getitem__(self, idx):
         if (idx > self.size).any():

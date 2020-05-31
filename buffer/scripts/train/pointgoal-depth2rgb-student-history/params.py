@@ -14,6 +14,7 @@ for method, batch_sizes in [('feedforward', [32, 64])]:
     --description {unique}-v6 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --resnet_model {resnet_model} \\
+    --history_size 5 \\
     --hidden_size 1024 \\
     --method {method} \\
     --dataset castle \\
