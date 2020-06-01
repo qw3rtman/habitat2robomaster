@@ -1,8 +1,8 @@
 import argparse
 from pathlib import Path
 import time
-
 import tqdm
+import pickle
 import wandb
 
 import torch
@@ -17,7 +17,7 @@ from wrapper import MODELS, MODALITIES, SPLIT, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
 
 
-def loop(net, data, replay_buffer, env, optim, config, mode='train'):
+def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
     if mode == 'train':
         net.train()
     else:
@@ -26,9 +26,12 @@ def loop(net, data, replay_buffer, env, optim, config, mode='train'):
     losses = list()
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
+    correct, total = 0, 0
     tick = time.time()
     for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
+        target = target.reshape(config['data_args']['batch_size'], 256, 256, -1)
+
         goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
 
@@ -36,37 +39,46 @@ def loop(net, data, replay_buffer, env, optim, config, mode='train'):
         loss = criterion(_action, action)
         loss_mean = loss.mean()
 
+        uids.update(replay_buffer.uids[idx])
+        correct += (action == _action.argmax(dim=1)).sum().item()
+        total += target.shape[0]
+
         if mode == 'train':
             loss_mean.backward()
             optim.step()
             optim.zero_grad()
 
-        replay_buffer.update_loss(idx, loss.detach().cpu().numpy())
+        #replay_buffer.update_loss(idx, loss.detach().cpu().numpy())
         losses.append(loss_mean.item())
 
         wandb.run.summary['step'] += 1
         metrics = {'loss': loss_mean.item(),
-                   'images_per_second': target.shape[0] / (time.time() - tick)}
+                   'images_per_second': target.shape[0] / (time.time() - tick),
+                   'unique_samples': len(uids)}
         wandb.log({('%s/%s' % ('train', k)): v for k, v in metrics.items()},
                    step=wandb.run.summary['step'])
         tick = time.time()
 
+    wandb.log({'train/acc': correct/total}, step=wandb.run.summary['step'])
     return np.mean(losses)
 
 
-def resume_project(net, scheduler, replay_buffer, config):
+def resume_project(net, scheduler, replay_buffer, uids, config):
     print('Resumed at epoch %d.' % wandb.run.summary['epoch'])
 
     net.load_state_dict(torch.load(config['checkpoint_dir'] / 'model_latest.t7'))
     scheduler.load_state_dict(torch.load(config['checkpoint_dir'] / 'scheduler_latest.t7'))
     if (config['checkpoint_dir'] / 'buffer').exists():
         replay_buffer.load(config['checkpoint_dir'] / 'buffer')
+    with open(config['checkpoint_dir'] / 'uids.pickle', 'rb') as f:
+        uids = pickle.load(f)
 
-
-def checkpoint_project(net, scheduler, replay_buffer, config):
+def checkpoint_project(net, scheduler, replay_buffer, uids, config):
     torch.save(net.state_dict(), config['checkpoint_dir'] / 'model_latest.t7')
     torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
     replay_buffer.save(config['checkpoint_dir'] / 'buffer', overwrite=True)
+    with open(config['checkpoint_dir'] / 'uids.pickle', 'wb') as f:
+        pickle.dump(uids, f)
 
 
 def main(config):
@@ -80,12 +92,15 @@ def main(config):
             config['student_args']['target'], mode='teacher', shuffle=False,
             split='train', dataset=config['teacher_args']['dataset'])
 
+    uids = set()
     replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
             dshape=(256,256,3), dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
-    starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s2%s_buffer' % \
-            (config['teacher_args']['proxy'], config['student_args']['target']))
+    starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s-%s2%s-buffer' % \
+            (config['teacher_args']['dataset'], config['teacher_args']['proxy'], config['student_args']['target']))
+    starter = False
     if starter_buffer.exists():
         replay_buffer.load(starter_buffer)
+        starter = True
 
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
 
@@ -93,7 +108,7 @@ def main(config):
     wandb.init(project=project_name, config=config, id=config['run_name'], resume='auto')
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
     if wandb.run.resumed:
-        resume_project(net, scheduler, replay_buffer, config)
+        resume_project(net, scheduler, replay_buffer, uids, config)
     else:
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
@@ -101,33 +116,39 @@ def main(config):
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
+        if not starter:
+            env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
+            for _ in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
+                replay_episode(env, replay_buffer)#, score_by=net)
+
         dataset = replay_buffer.get_dataset()
         data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
 
-        loss_train = loop(net, data, replay_buffer, env, optim, config, mode='train')
+        loss_train = loop(net, data, replay_buffer, uids, env, optim, config, mode='train')
         scheduler.step()
 
         # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
-        if epoch > 1:
+        if starter and epoch > 1:
             env.env._episode_iterator.max_scene_repeat_episodes = 16
-        for _ in range(256):#512 if epoch > 1 else 1328):
-            replay_episode(env, replay_buffer, score_by=net)
+            for _ in range(256):#512 if epoch > 1 else 1328):
+                replay_episode(env, replay_buffer)#, score_by=net)
 
         wandb.log({'train/loss_epoch': loss_train, 'buffer_capacity': replay_buffer.size}, step=wandb.run.summary['step'])
         if wandb.run.summary['epoch'] % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
-        checkpoint_project(net, scheduler, replay_buffer, config)
+        checkpoint_project(net, scheduler, replay_buffer, uids, config)
 
 
 def get_run_name(parsed):
     return '-'.join(map(str, [
-        'dagger' if parsed.dagger else 'bc', parsed.method,             # paradigm
-        parsed.resnet_model, parsed.history_size, parsed.hidden_size,   # model
-        'pre' if parsed.pretrained else 'scratch',                      # model
-        parsed.dataset, f'{parsed.proxy}2{parsed.target}',              # modalities
-        parsed.goal, 'aug' if parsed.augmentation else 'noaug',         # dataset
-        parsed.batch_size, parsed.lr, parsed.weight_decay               # hyperparams
+        'dagger' if parsed.dagger else 'bc', parsed.method, # paradigm
+        parsed.hidden_size, parsed.resnet_model,            # model
+        'pre' if parsed.pretrained else 'scratch',          # model
+        parsed.dataset, f'{parsed.proxy}2{parsed.target}',  # modalities
+        parsed.history_size, parsed.goal,                   # dataset
+        'aug' if parsed.augmentation else 'noaug',          # dataset
+        parsed.batch_size, parsed.lr, parsed.weight_decay   # hyperparams
     ])) + f'-v{parsed.description}'
 
 
@@ -144,9 +165,9 @@ if __name__ == '__main__':
 
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
+    parser.add_argument('--hidden_size', type=int, required=True)
     parser.add_argument('--resnet_model', required=True)
     parser.add_argument('--history_size', type=int, default=1)
-    parser.add_argument('--hidden_size', type=int, required=True)
     parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
     parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
     parser.add_argument('--dagger', action='store_true')

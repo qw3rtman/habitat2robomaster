@@ -198,7 +198,6 @@ class Rollout:
             self.i += 1
 
 
-# TODO: handle history_size
 # TODO: handle prev_action, if needed
 def replay_episode(env, replay_buffer, score_by=None):
     hsize = replay_buffer.history_size

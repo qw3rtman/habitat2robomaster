@@ -33,6 +33,7 @@ else: # use model_latest from checkpoints
         # copy config.yaml
         wandb_dirs = list(wandb_root.glob(f'*{key}'))
         wandb_dirs.sort(key=os.path.getmtime)
+        print(wandb_dirs)
 
         i = -1
         while not (wandb_dirs[i]/'config.yaml').exists():

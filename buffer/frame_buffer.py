@@ -20,8 +20,7 @@ class LossSampler(torch.utils.data.sampler.Sampler):
             yield idxs[o]
 
     def __len__(self):
-        # this doesn't guarantee that we hit all samples
-        return 2 * (len(self.replay_buffer) // self.batch_size)
+        return len(self.replay_buffer) // self.batch_size
 
 
 class ReplayBuffer(torch.utils.data.Dataset):
@@ -33,7 +32,9 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
         self.idxs = torch.arange(self.buffer_size)
         self.size = 0
+        self.uid = 0
 
+        self.uids = np.empty((buffer_size), dtype=np.uint64)
         self.targets = torch.empty((buffer_size, history_size, *dshape), dtype=dtype)
         self.goals = torch.empty((buffer_size, goal_size), dtype=torch.float32)
         self.prev_actions = torch.empty((buffer_size), dtype=torch.uint8)
@@ -47,9 +48,10 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
     def load(self, root):
         with open(root/'info.txt', 'r') as f:
-            buffer_size, self.size = map(int, f.readlines()[0].strip().split(' '))
+            buffer_size, self.size, self.uid = map(int, f.readlines()[0].strip().split(' '))
         #assert buffer_size == self.buffer_size
 
+        self.uids[:self.size] = np.load(root/'uids.npy')
         z = zarr.open(str(root/'targets'), mode='r')
         self.targets[:self.size] = torch.as_tensor(z[:])
         self.goals[:self.size] = torch.load(root/'goals.pth')
@@ -68,11 +70,12 @@ class ReplayBuffer(torch.utils.data.Dataset):
                 return
 
         with open(root/'info.txt', 'w') as f:
-            f.write(f'{self.buffer_size} {self.size}')
+            f.write(f'{self.buffer_size} {self.size} {self.uid}')
 
-        compressor = Blosc(cname='zstd', clevel=3)
+        np.save(root/'uids.npy', self.uids[:self.size])
         z = zarr.open(str(root/'targets'), mode='w', shape=(self.size, *self.targets.shape[1:]),
-                chunks=(self.buffer_size//32, -1, -1, -1), dtype=self.targets.numpy().dtype, compressor=compressor)
+                chunks=(self.buffer_size//32, -1, -1, -1), dtype=self.targets.numpy().dtype,
+                compressor=Blosc(cname='zstd', clevel=3))
         z[:] = self.targets[:self.size].numpy()
 
         torch.save(self.goals[:self.size], root/'goals.pth')
@@ -84,6 +87,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
     def insert(self, target, goal, prev_action, action, loss=0.):
         if self.size >= self.buffer_size: # buffer full
+            # if loss is random, then this is random eviction
             idx = self.losses[:self.size].argmin()
             if loss < self.losses[idx]:
                 return
@@ -91,12 +95,15 @@ class ReplayBuffer(torch.utils.data.Dataset):
             idx = self.size
             self.size += 1
 
-        self.targets[idx] = torch.tensor(target, dtype=self.targets.dtype)
-        self.goals[idx] = torch.tensor(goal, dtype=torch.float32)
+        # no need to copy, indexing since makes a copy
+        self.uids[idx] = self.uid
+        self.targets[idx] = torch.as_tensor(target, dtype=self.targets.dtype)
+        self.goals[idx] = torch.as_tensor(goal, dtype=torch.float32)
         self.prev_actions[idx] = prev_action
         self.actions[idx] = action
         self.losses[idx] = loss
 
+        self.uid += 1
         return idx
 
     def update_loss(self, idxs, losses):
@@ -104,12 +111,14 @@ class ReplayBuffer(torch.utils.data.Dataset):
 
     def sample_k(self, k, idxs_only=False):
         valid = self.losses[:self.size]
+        """ weighting scheme
         if valid.sum() == 0: # uniform
             weights = np.ones((self.size)) / self.size
         else:
             weights = valid / valid.sum()
+        """
 
-        idxs = self.rng.choice(self.idxs[:self.size], size=k, p=weights)
+        idxs = self.rng.choice(self.idxs[:self.size], size=k)#, p=weights)
         if idxs_only:
             return idxs
 
