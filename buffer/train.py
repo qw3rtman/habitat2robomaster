@@ -30,10 +30,11 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
     correct, total = 0, 0
     tick = time.time()
     for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
-        target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
-        target = target.reshape(config['data_args']['batch_size'], 256, 256, -1)
         if config['student_args']['target'] == 'semantic':
-            target = make_onehot(target)
+            target = make_onehot(target.reshape(-1, 256, 256)).to(config['device'])
+        else:
+            target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
+            target = target.reshape(config['data_args']['batch_size'], 256, 256, -1)
 
         goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)

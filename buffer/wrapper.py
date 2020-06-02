@@ -129,7 +129,7 @@ class Rollout:
         # H x W x C
         target = self.observations[self.target]
         if self.target == 'semantic':
-            target = target.unsqueeze(dim=-1)
+            target = target[..., np.newaxis]
         return target
 
     def act(self):
@@ -211,7 +211,7 @@ def replay_episode(env, replay_buffer, score_by=None):
     if score_by:
         score_by.eval()
 
-    target_buffer = np.empty((hsize,*replay_buffer.dshape), dtype=replay_buffer.dtype)
+    target_buffer = np.empty((hsize,*replay_buffer.dshape), dtype=np.uint8)
     for i, step in enumerate(env.rollout()):
         target = env.get_target()
         r, t = step['compass_r'], step['compass_t']
