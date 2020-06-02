@@ -30,6 +30,9 @@ class ReplayBuffer(torch.utils.data.Dataset):
         self.buffer_size = buffer_size
         self.history_size = int(history_size)
 
+        self.dshape = dshape
+        self.dtype = dtype
+
         self.idxs = torch.arange(self.buffer_size)
         self.size = 0
         self.uid = 0

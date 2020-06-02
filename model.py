@@ -11,6 +11,7 @@ from habitat_baselines.common.utils import CategoricalNet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import PointNavResNetPolicy
 
 from habitat_wrapper import MODALITIES
+from buffer.util import C
 
 class Flatten(nn.Module):
     def forward(self, x):
@@ -29,15 +30,15 @@ class GoalConditioned(nn.Module):
 
         self.target = target
         assert self.target in MODALITIES
-        if self.target == 'semantic':
-            self.target = 'depth'
-
         if self.target == 'depth':
             input_channels = 1
             target_space = spaces.Box(low=0, high=1, shape=(256, 256, history_size), dtype=np.float32)
         elif self.target == 'rgb':
             input_channels = 3
             target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3*history_size), dtype=np.uint8)
+        elif self.target == 'semantic':
+            input_channels = C
+            target_space = spaces.Box(low=0, high=1, shape=(256, 256, C*history_size), dtype=np.bool)
 
         observation_spaces = spaces.Dict({self.target: target_space})
 

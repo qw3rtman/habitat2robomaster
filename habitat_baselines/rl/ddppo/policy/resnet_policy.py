@@ -70,6 +70,12 @@ class ResNetEncoder(nn.Module):
         else:
             self._n_input_rgb = 0
 
+        if "semantic" in observation_space.spaces:
+            self._n_input_semantic = observation_space.spaces["semantic"].shape[2]
+            spatial_size = observation_space.spaces["semantic"].shape[0] // 2
+        else:
+            self._n_input_semantic = 0
+
         if "depth" in observation_space.spaces:
             self._n_input_depth = observation_space.spaces["depth"].shape[2]
             spatial_size = observation_space.spaces["depth"].shape[0] // 2
@@ -78,7 +84,7 @@ class ResNetEncoder(nn.Module):
 
         if normalize_visual_inputs:
             self.running_mean_and_var = RunningMeanAndVar(
-                self._n_input_depth + self._n_input_rgb
+                self._n_input_rgb + self._n_input_depth
             )
         else:
             self.running_mean_and_var = nn.Sequential()
@@ -114,7 +120,7 @@ class ResNetEncoder(nn.Module):
 
     @property
     def is_blind(self):
-        return self._n_input_rgb + self._n_input_depth == 0
+        return self._n_input_rgb + self._n_input_depth + self._n_input_semantic == 0
 
     def layer_init(self):
         for layer in self.modules():
@@ -139,11 +145,15 @@ class ResNetEncoder(nn.Module):
 
         if self._n_input_depth > 0:
             depth_observations = observations["depth"]
-
             # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
             depth_observations = depth_observations.permute(0, 3, 1, 2)
-
             cnn_input.append(depth_observations)
+
+        if self._n_input_semantic > 0:
+            semantic_observations = observations["semantic"]
+            # permute tensor to dimension [BATCH x CHANNEL x HEIGHT X WIDTH]
+            semantic_observations = semantic_observations.permute(0, 3, 1, 2)
+            cnn_input.append(semantic_observations)
 
         x = torch.cat(cnn_input, dim=1)
         #print(x.shape)

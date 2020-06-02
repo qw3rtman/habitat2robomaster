@@ -15,6 +15,7 @@ sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import GoalConditioned
 from wrapper import MODELS, MODALITIES, SPLIT, Rollout, replay_episode
 from frame_buffer import ReplayBuffer, LossSampler
+from util import C, make_onehot
 
 
 def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
@@ -31,6 +32,8 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
     for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
         target = target.reshape(config['data_args']['batch_size'], 256, 256, -1)
+        if config['student_args']['target'] == 'semantic':
+            target = make_onehot(target)
 
         goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
@@ -88,14 +91,17 @@ def main(config):
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
 
     # TODO: should support gibson+mp3d, not just gibson
+    sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
             config['student_args']['target'], mode='teacher', shuffle=False,
             split='train', dataset=config['teacher_args']['dataset'],
+            sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
             k=3 if config['student_args']['dagger'] else 0)
 
     uids = set()
     replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
-            dshape=(256,256,3), dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
+            dshape=(256,256,3 if config['student_args']['target'] == 'rgb' else 1),
+            dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
     starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s-%s2%s-buffer' % \
             (config['teacher_args']['dataset'], config['teacher_args']['proxy'], config['student_args']['target']))
     starter = False

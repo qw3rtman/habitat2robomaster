@@ -20,8 +20,8 @@ from wrapper import Rollout, METRICS
 
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
-from habitat_dataset import HabitatDataset
 from model import get_model
+from util import C
 
 COLORS = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
 def get_fig(xy):
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     if student_args['target'] == 'depth':
         input_channels = 1
     elif student_args['target'] == 'semantic':
-        input_channels = HabitatDataset.NUM_SEMANTIC_CLASSES
+        input_channels = C
 
     #goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
     #hidden_size = student_args.get('hidden_size', 1024)

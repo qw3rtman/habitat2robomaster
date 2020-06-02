@@ -52,7 +52,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', k=0, **kwargs):
+    def __init__(self, task, proxy, target, mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', k=0, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert target in MODALITIES
@@ -66,7 +66,6 @@ class Rollout:
         self.task = task
         self.proxy = proxy
         self.target = target
-        self.save = save
         self.mode = mode
         self.student = student
         self.epoch = 1
@@ -127,9 +126,10 @@ class Rollout:
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
     
     def get_target(self):
+        # H x W x C
         target = self.observations[self.target]
         if self.target == 'semantic':
-            target = HabitatDataset.make_semantic(target)
+            target = target.unsqueeze(dim=-1)
         return target
 
     def act(self):
@@ -211,7 +211,7 @@ def replay_episode(env, replay_buffer, score_by=None):
     if score_by:
         score_by.eval()
 
-    target_buffer = np.empty((hsize,256,256,3), dtype=np.float32)
+    target_buffer = np.empty((hsize,*replay_buffer.dshape), dtype=replay_buffer.dtype)
     for i, step in enumerate(env.rollout()):
         target = env.get_target()
         r, t = step['compass_r'], step['compass_t']
