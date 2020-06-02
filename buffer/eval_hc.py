@@ -21,9 +21,14 @@ from wrapper import Rollout, METRICS
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import get_model
-from util import C
+from util import C, make_onehot
 
-COLORS = ['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)]
+BACKGROUND = (0,0,0,0)
+COLORS = [
+    (0,47,0,150),
+    (253,253,17,150)
+]
+
 def get_fig(xy):
     fig = go.Figure(data=[go.Box(y=y,
         boxpoints='all',
@@ -31,7 +36,7 @@ def get_fig(xy):
         jitter=0.1,
         pointpos=-1.6,
         name=f'{x}',
-        marker_color=COLORS[i%20]
+        marker_color=['hsl('+str(h)+',50%'+',50%)' for h in np.linspace(0, 360, 20)][i%20]
     ) for i, (x, y) in enumerate(xy.items())])
     fig.update_layout(
         xaxis=dict(title='Scene', showgrid=False, zeroline=False, dtick=1),
@@ -53,10 +58,8 @@ def _eval_scene(scene, parsed, num_episodes):
     print(split)
     sensors = ['RGB_SENSOR']
     dataset=teacher_args['dataset']
-    print(dataset)
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
-        dataset='mp3d'
     elif student_args['target'] == 'depth':
         sensors.append('DEPTH_SENSOR')
     print(dataset)
@@ -89,6 +92,15 @@ def _eval_scene(scene, parsed, num_episodes):
                 dtg = env.env.get_metrics()['distance_to_goal']
 
             frame = Image.fromarray(step['rgb'])
+            if env.target == 'semantic':
+                onehot = make_onehot(step['semantic'])
+                semantic = np.zeros((256, 256, 4), dtype=np.uint8)
+                semantic[...] = BACKGROUND
+                for i in range(min(onehot.shape[-1], len(COLORS))):
+                    semantic[onehot[...,i] == 1] = COLORS[i]
+                semantic = Image.fromarray(semantic, 'RGBA')
+                frame = Image.alpha_composite(frame.convert('RGBA'), semantic)
+
             draw = ImageDraw.Draw(frame)
             font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
             direction = env.get_direction()

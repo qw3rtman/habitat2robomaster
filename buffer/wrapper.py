@@ -17,6 +17,7 @@ import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from habitat_baselines.agents.ppo_agents import PPOAgent
 from habitat_dataset import HabitatDataset
+from util import make_onehot
 
 TASKS = ['pointgoal']
 MODES = ['student', 'teacher', 'both']
@@ -136,7 +137,11 @@ class Rollout:
         def act_random():
             return {'action': int(1+(random.random()*3))}
         def act_student():
-            target = torch.as_tensor(self.get_target(), dtype=torch.float, device=self.device).unsqueeze(dim=0)
+            target = self.get_target()
+            if self.target == 'semantic':
+                target = make_onehot(target.reshape(-1, 256, 256)).to(self.device)
+            else:
+                target = torch.as_tensor(target, dtype=torch.float, device=self.device).unsqueeze(dim=0)
 
             # TODO: base on parsed.goal type
             r, t = self.observations['pointgoal_with_gps_compass']

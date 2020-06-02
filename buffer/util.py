@@ -3,7 +3,7 @@ import torch
 C = 2
 def make_onehot(semantic):
     """
-        input:  torch (B,256,256,1), dtype: torch.uint8
+        input:  torch (B,256,256,1), dtype: torch/np.uint8
         output: torch (B,256,256,C), dtype: torch.float
     """
     onehot = torch.zeros((*semantic.shape, C), dtype=torch.float)
