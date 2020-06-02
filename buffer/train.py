@@ -90,7 +90,8 @@ def main(config):
     # TODO: should support gibson+mp3d, not just gibson
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
             config['student_args']['target'], mode='teacher', shuffle=False,
-            split='train', dataset=config['teacher_args']['dataset'])
+            split='train', dataset=config['teacher_args']['dataset'],
+            k=3 if config['student_args']['dagger'] else 0)
 
     uids = set()
     replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),

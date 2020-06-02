@@ -51,13 +51,13 @@ class ReplayBuffer(torch.utils.data.Dataset):
             buffer_size, self.size, self.uid = map(int, f.readlines()[0].strip().split(' '))
         #assert buffer_size == self.buffer_size
 
-        self.uids[:self.size] = np.load(root/'uids.npy')
+        self.uids[:self.size] = np.load(root/'uids.npy')[:self.size]
         z = zarr.open(str(root/'targets'), mode='r')
-        self.targets[:self.size] = torch.as_tensor(z[:])
-        self.goals[:self.size] = torch.load(root/'goals.pth')
-        self.prev_actions[:self.size] = torch.load(root/'prev_actions.pth')
-        self.actions[:self.size] = torch.load(root/'actions.pth')
-        self.losses[:self.size] = torch.load(root/'losses.pth')
+        self.targets[:self.size] = torch.as_tensor(z[:self.size])
+        self.goals[:self.size] = torch.load(root/'goals.pth')[:self.size]
+        self.prev_actions[:self.size] = torch.load(root/'prev_actions.pth')[:self.size]
+        self.actions[:self.size] = torch.load(root/'actions.pth')[:self.size]
+        self.losses[:self.size] = torch.load(root/'losses.pth')[:self.size]
 
         print('[!] loaded buffer')
 

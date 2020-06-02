@@ -52,7 +52,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', **kwargs):
+    def __init__(self, task, proxy, target, save='rgb', mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', k=0, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert target in MODALITIES
@@ -71,6 +71,7 @@ class Rollout:
         self.student = student
         self.epoch = 1
         self.goal = goal
+        self.k = k
 
         ####### agent config ##################################################
         agent_config = Config()
@@ -132,6 +133,8 @@ class Rollout:
         return target
 
     def act(self):
+        def act_random():
+            return {'action': int(1+(random.random()*3))}
         def act_student():
             target = torch.as_tensor(self.get_target(), dtype=torch.float, device=self.device).unsqueeze(dim=0)
 
@@ -149,7 +152,7 @@ class Rollout:
             return {'student': student_action}
         elif self.mode == 'teacher':
             teacher_action = self.agent.act(self.observations)
-            return {'teacher': teacher_action}
+            return {'teacher': teacher_action, 'random': act_random()}
         elif self.mode == 'both':
             student_action, student_logits = act_student()
             teacher_action = self.agent.act(self.observations)
@@ -162,6 +165,8 @@ class Rollout:
             _action = action['student']
         elif self.mode == 'teacher':
             _action = action['teacher']
+            if self.i % 10 < self.k:
+                _action = action['random']
         elif self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
             beta = 0.9 * (0.95**(self.epoch/5))
             _action = action['teacher'] if np.random.random() <= beta else action['student']
