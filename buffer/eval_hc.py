@@ -53,11 +53,10 @@ def _eval_scene(scene, parsed, num_episodes):
     global total
 
     split = f'{parsed.split}_ddppo'
-    if student_args['target'] == 'semantic' or teacher_args['dataset'] != 'gibson':
+    if student_args['target'] == 'semantic' or dataset != 'gibson':
         split = f'{parsed.split}'
     print(split)
     sensors = ['RGB_SENSOR']
-    dataset=teacher_args['dataset']
     if student_args['target'] == 'semantic':
         sensors.append('SEMANTIC_SENSOR')
     elif student_args['target'] == 'depth':
@@ -80,6 +79,7 @@ def _eval_scene(scene, parsed, num_episodes):
     all_softspl[scene] = softspl
 
     for ep in range(num_episodes):
+        print(f'[!] Start {scene} ({total})')
         total += 1
 
         if student_args['method']!='feedforward':
@@ -88,6 +88,7 @@ def _eval_scene(scene, parsed, num_episodes):
 
         env.clean()
         for i, step in enumerate(env.rollout()):
+            print(step['compass_r'], step['compass_t'])
             if i == 0:
                 dtg = env.env.get_metrics()['distance_to_goal']
 
@@ -105,7 +106,7 @@ def _eval_scene(scene, parsed, num_episodes):
             font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
             direction = env.get_direction()
             draw.rectangle((0, 0, 255, 20), fill='black')
-            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, np.linalg.norm(direction)), fill='white', font=font)
+            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, env.env.get_metrics()['distance_to_goal']), fill='white', font=font)
 
             images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
@@ -113,6 +114,7 @@ def _eval_scene(scene, parsed, num_episodes):
         success[ep] = metrics['success']
         spl[ep] = metrics['spl']
         softspl[ep] = metrics['softspl']
+        print(f'[!] End {scene} ({total})', metrics)
 
         #print(f'[{ep+1}/num_episodes] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
 
@@ -140,6 +142,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--epoch', type=int, required=True)
+    parser.add_argument('--dataset') # override's config.yaml
+    parser.add_argument('--scene')   # ^^^
     parser.add_argument('--split', required=True)
     parser.add_argument('--goal')#, choices=['polar', 'cartesian'])
     parser.add_argument('--redo', action='store_true')
@@ -183,22 +187,25 @@ if __name__ == '__main__':
     wandb.init(project='pointgoal-rgb2depth-eval-hc', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
+    dataset = teacher_args['dataset']
+    if parsed.dataset:
+        dataset = parsed.dataset
+
     num_episodes = 10
-    if teacher_args['dataset'] in ['gibson', 'mp3d']:
+    if dataset in ['gibson', 'mp3d'] and not parsed.scene:
         if student_args['target'] == 'semantic':
             with open(f'splits/mp3d_{parsed.split}.txt', 'r') as f:
                 scenes = [scene.strip() for scene in f.readlines()]
             available_scenes = scenes
             print(scenes)
         else:
-            #available_scenes = set([scene.stem.split('.')[0] for scene in Path('/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/train_ddppo/content').glob('*.gz')])
             available_scenes = set([scene.stem.split('.')[0] for scene in Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{parsed.split}_ddppo/content').glob('*.gz')])
             with open('splits/gibson_splits/train_val_test_fullplus.csv', 'r') as csv_f:
                 splits = pd.read_csv(csv_f)
             #scenes = splits[splits['train'] ==1]['id'].tolist()
             scenes = splits[splits[parsed.split] ==1]['id'].tolist()
     else: # castle, office
-        scenes = ['*']
+        scenes = [parsed.scene] if parsed.scene else ['*']
         available_scenes = set(scenes)
         num_episodes = 100
 

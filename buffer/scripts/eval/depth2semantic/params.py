@@ -11,6 +11,8 @@ checkpoint_root = Path('/scratch/cluster/nimit/checkpoints')
 parser = argparse.ArgumentParser()
 parser.add_argument('--glob', type=str, required=True)
 parser.add_argument('--epoch', type=int)
+parser.add_argument('--dataset')
+parser.add_argument('--scene')
 parser.add_argument('--redo', action='store_true')
 parser.add_argument('--split', type=str, default='val')
 parsed = parser.parse_args()
@@ -62,7 +64,7 @@ for (model, epoch) in runs.values():
     --model {model} \\
     --epoch {epoch} \\
     --split {parsed.split} \\
-    {'--redo ' if parsed.redo else ''}
+    {f'--redo ' if parsed.redo else ''}{f'--dataset {parsed.dataset} ' if parsed.dataset else ''}{f'--scene {parsed.scene} ' if parsed.scene else ''}
 """
 
     jobs.append(job)
