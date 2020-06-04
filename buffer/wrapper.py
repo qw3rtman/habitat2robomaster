@@ -177,11 +177,10 @@ class Rollout:
                     'student_logits': student_logits}
         elif self.mode == 'greedy':
             try:
-                onehot = self.greedy_follower.get_next_action(self.env.current_episode.goals[0].position)
+                greedy_action = self.greedy_follower.get_next_action(self.env.current_episode.goals[0].position)
             except: # GreedyFollowerError, rare but it happens
                 return None
 
-            greedy_action = int(onehot.argmax())
             return {'greedy': {'action': 0 if greedy_action is None else greedy_action}}
 
 
