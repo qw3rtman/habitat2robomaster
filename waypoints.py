@@ -26,19 +26,31 @@ cv2.namedWindow('rgb', cv2.WINDOW_NORMAL)
 cv2.resizeWindow('rgb', 768, 320)
 
 i = 0
+init = False
 while i < replay_buffer.size:
     rgb = replay_buffer.targets[i].squeeze().numpy()
     cv2.imshow('rgb', cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
 
+    movement = replay_buffer.actions[i:i+10] == 1
+    k = np.searchsorted(np.cumsum(movement), 6)
+
     # stupid
     fig, ax = plt.subplots(ncols=1, nrows=1)
-    R = r[i:i+5]-r[i] # relative
-    T = t[i:i+5]-t[i] # absolute
     ax.set_ylim(-1,1)
     ax.set_xlim(-1,1)
-    x, y = R*np.cos(T), R*np.sin(T)
-    x, y = rotate_origin_only(x, y, np.pi/2)
-    ax.scatter(x, y)
+
+    R = r[i:i+k][movement[:k]]-r[i] # relative
+    T = t[i:i+k][movement[:k]]-t[i] # absolute
+    x, y = rotate_origin_only(R*np.cos(T), R*np.sin(T), np.pi/2)
+    if (y < 0).sum() == 0: # if behind camera, then use prev
+        if T.shape[0] != 0:
+            _t = np.linspace(T[0], T[-1], 10)
+            _r = np.linspace(R[0], R[-1], 10)
+            _x, _y = rotate_origin_only(_r*np.cos(_t), _r*np.sin(_t), np.pi/2) # fit arc
+            init = True
+    if init:
+        ax.scatter(x, y)
+        ax.plot(_x, _y, c='r')
     ax.axis('off')
     fig.tight_layout(pad=0)
     ax.margins(0)
