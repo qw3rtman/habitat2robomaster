@@ -29,6 +29,8 @@ COLORS = [
     (253,253,17,150)
 ]
 
+ACTIONS = {0: 'S', 1: 'F', 2: 'L', 3: 'R'}
+
 def get_fig(xy):
     fig = go.Figure(data=[go.Box(y=y,
         boxpoints='all',
@@ -88,7 +90,7 @@ def _eval_scene(scene, parsed, num_episodes):
 
         env.clean()
         for i, step in enumerate(env.rollout()):
-            print(step['compass_r'], step['compass_t'])
+            #print(step['compass_r'], step['compass_t'])
             if i == 0:
                 dtg = env.env.get_metrics()['distance_to_goal']
 
@@ -106,7 +108,9 @@ def _eval_scene(scene, parsed, num_episodes):
             font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
             direction = env.get_direction()
             draw.rectangle((0, 0, 255, 20), fill='black')
-            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f}'.format(*direction, env.env.get_metrics()['distance_to_goal']), fill='white', font=font)
+
+            _action = ACTIONS[step['action'][env.mode]['action']]
+            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f} {}'.format(*direction, env.env.get_metrics()['distance_to_goal'], _action), fill='white', font=font)
 
             images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 

@@ -45,12 +45,13 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
             goal[probs < 0.05, 0] = 0.2 * torch.rand(sum(probs < 0.05), device=config['device'])
             action[probs < 0.05]  = 0
 
-            # flip augmentation
+            """ flip augmentation
             probs = np.random.random(config['data_args']['batch_size'])
             target[probs < 0.05] = target[probs < 0.05].flip(dims=(2,))
             goal[probs < 0.05]   *= torch.tensor([1, 1, -1], device=config['device']) # -theta
             left, right = action[probs < 0.05] == 2, action[probs < 0.05] == 3
             action[probs < 0.05][left], action[probs < 0.05][right] = 3, 2
+            """
 
         _action = net((target, goal)).logits
         loss = criterion(_action, action)
@@ -139,7 +140,7 @@ def main(config):
 
         if not starter:
             env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
-            for _ in range(4 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
+            for _ in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
                 replay_episode(env, replay_buffer)#, score_by=net)
 
         dataset = replay_buffer.get_dataset()

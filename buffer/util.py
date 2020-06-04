@@ -1,6 +1,6 @@
 import torch
 
-C = 2
+C = 2#1
 def make_onehot(semantic):
     """
         input:  torch (B,256,256,1), dtype: torch/np.uint8

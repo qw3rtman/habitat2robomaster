@@ -10,6 +10,7 @@ from collections import deque, defaultdict
 import habitat
 from habitat.config import Config
 from habitat.config.default import get_config
+from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 from habitat.core.env import Env
 from gym.spaces import Box, Dict, Discrete
 
@@ -20,7 +21,7 @@ from habitat_dataset import HabitatDataset
 from util import make_onehot
 
 TASKS = ['pointgoal']
-MODES = ['student', 'teacher', 'both']
+MODES = ['student', 'teacher', 'both', 'greedy']
 METRICS = ['success', 'spl', 'softspl', 'distance_to_goal']
 MODALITIES = ['depth', 'rgb', 'semantic']
 
@@ -53,7 +54,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, target, mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], goal='polar', k=0, **kwargs):
+    def __init__(self, task, proxy, target, mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], height=256, width=256, fov=90, goal='polar', k=0, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert target in MODALITIES
@@ -67,6 +68,9 @@ class Rollout:
         self.task = task
         self.proxy = proxy
         self.target = target
+        self.height = height
+        self.width = width
+        self.fov = fov
         self.mode = mode
         self.student = student
         self.epoch = 1
@@ -98,6 +102,10 @@ class Rollout:
         env_config = get_config(CONFIGS['ddppo'])
         env_config.defrost()
 
+        for sensor in sensors:
+            env_config['SIMULATOR'][sensor].HEIGHT = self.height
+            env_config['SIMULATOR'][sensor].WIDTH  = self.width
+            env_config['SIMULATOR'][sensor].HFOV   = self.fov
         env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle # NOTE: not working?
         env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
         env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
@@ -110,6 +118,9 @@ class Rollout:
         #######################################################################
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        if self.mode == 'greedy':
+            self.greedy_follower = ShortestPathFollower(self.env.sim, 0.2, False)
 
     def clean(self):
         self.i = 0
@@ -139,7 +150,7 @@ class Rollout:
         def act_student():
             target = self.get_target()
             if self.target == 'semantic':
-                target = make_onehot(target.reshape(-1, 256, 256)).to(self.device)
+                target = make_onehot(target.reshape(-1, self.height, self.width)).to(self.device)
             else:
                 target = torch.as_tensor(target, dtype=torch.float, device=self.device).unsqueeze(dim=0)
 
@@ -164,6 +175,15 @@ class Rollout:
             return {'student': student_action,
                     'teacher': teacher_action,
                     'student_logits': student_logits}
+        elif self.mode == 'greedy':
+            try:
+                onehot = self.greedy_follower.get_next_action(self.env.current_episode.goals[0].position)
+            except: # GreedyFollowerError, rare but it happens
+                return None
+
+            greedy_action = int(onehot.argmax())
+            return {'greedy': {'action': 0 if greedy_action is None else greedy_action}}
+
 
     def step(self, action):
         if self.mode == 'student':
@@ -176,6 +196,8 @@ class Rollout:
             beta = 0.9 * (0.95**(self.epoch/5))
             _action = action['teacher'] if np.random.random() <= beta else action['student']
             self.agent.prev_actions[0, 0] = _action['action'] # for teacher in mode=both
+        elif self.mode == 'greedy':
+            _action = action['greedy']
 
         self.observations = self.env.step(_action)
 
@@ -184,6 +206,8 @@ class Rollout:
 
         while not self.env.episode_over:
             action = self.act()
+            if action is None:
+                break
 
             if expose:
                 self.state = self.env.sim.get_agent_state()
