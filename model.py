@@ -41,7 +41,6 @@ class GoalConditioned(nn.Module):
             target_space = spaces.Box(low=0, high=1, shape=(height, width, C*history_size), dtype=np.bool)
 
         observation_spaces = spaces.Dict({self.target: target_space})
-        print(height, width, observation_spaces)
 
         self.visual_encoder = ResNetEncoder(
             observation_spaces,

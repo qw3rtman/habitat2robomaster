@@ -110,9 +110,10 @@ def main(config):
 
     # TODO: should support gibson+mp3d, not just gibson
     sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+    mode = 'teacher' if config['teacher_args']['supervision'] == 'ddppo' else config['teacher_args']['supervision']
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
-            config['student_args']['target'], mode=config['teacher_args']['supervision'],
-            shuffle=False, split='train', dataset=config['teacher_args']['dataset'],
+            config['student_args']['target'], mode=mode, shuffle=False,
+            split='train', dataset=config['teacher_args']['dataset'],
             sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
             k=3 if config['student_args']['dagger'] else 0, **config['data_args'])
 
@@ -144,8 +145,9 @@ def main(config):
 
         if not starter:
             env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
-            for _ in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
+            for _ in range(4 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
                 replay_episode(env, replay_buffer)#, score_by=net)
+                print(env.env.get_metrics())
 
         dataset = replay_buffer.get_dataset()
         data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)

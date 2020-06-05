@@ -154,7 +154,7 @@ if __name__ == '__main__':
     parser.add_argument('--redo', action='store_true')
     parsed = parser.parse_args()
 
-    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-model_{parsed.epoch:03}-{parsed.split}-new"
+    run_name = f"{get_model_args(parsed.model)['run_name']['value']}-model_{parsed.epoch:03}-{parsed.split}"
     exists = False
     if not parsed.redo:
         try:
@@ -181,7 +181,7 @@ if __name__ == '__main__':
 
     #goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
     #hidden_size = student_args.get('hidden_size', 1024)
-    net = get_model(**student_args).to(device)# goal_size=goal_size, hidden_size=hidden_size).to(device)
+    net = get_model(**student_args, **data_args).to(device)# goal_size=goal_size, hidden_size=hidden_size).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()
@@ -189,7 +189,7 @@ if __name__ == '__main__':
     config = get_model_args(parsed.model)
     config['epoch'] = parsed.epoch
     config['split'] = parsed.split
-    wandb.init(project='pointgoal-rgb2depth-eval-hc', id=run_name, config=config)
+    wandb.init(project='pointgoal-rgb2depth-eval-hc', name=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
     dataset = teacher_args['dataset']

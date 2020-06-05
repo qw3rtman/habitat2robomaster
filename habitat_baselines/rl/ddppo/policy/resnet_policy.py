@@ -85,8 +85,6 @@ class ResNetEncoder(nn.Module):
         else:
             self._n_input_depth = 0
 
-        print(spatial_size)
-
         if normalize_visual_inputs:
             self.running_mean_and_var = RunningMeanAndVar(
                 self._n_input_rgb + self._n_input_depth

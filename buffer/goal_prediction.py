@@ -48,7 +48,7 @@ class SpatialSoftmax(torch.nn.Module):
         return torch.stack((x, y), -1)
 
 
-def GoalModel(steps=5, temperature=1.0, resnet_model='resnet34', **resnet_kwargs):
+def GoalPredictionModel(steps=5, temperature=1.0, resnet_model='resnet34', **resnet_kwargs):
     return Network(steps, temperature, resnet_model, **resnet_kwargs)
 
 

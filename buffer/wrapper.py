@@ -81,7 +81,7 @@ class Rollout:
         ####### agent config ##################################################
         agent_config = Config()
         agent_config.INPUT_TYPE               = proxy
-        agent_config.RESOLUTION               = height
+        agent_config.RESOLUTION               = 256
         agent_config.HIDDEN_SIZE              = 512
         agent_config.GOAL_SENSOR_UUID         = 'pointgoal_with_gps_compass'
 
@@ -104,6 +104,9 @@ class Rollout:
         env_config.defrost()
 
         for sensor in sensors:
+            if sensor == 'DEPTH_SENSOR':
+                env_config['SIMULATOR'][sensor].POSITION = [0., 1.5, 0.]
+                continue
             env_config['SIMULATOR'][sensor].HEIGHT = self.height
             env_config['SIMULATOR'][sensor].WIDTH  = self.width
             env_config['SIMULATOR'][sensor].HFOV   = self.fov
@@ -248,7 +251,7 @@ def replay_episode(env, replay_buffer, score_by=None):
         goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float)
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
 
-        np.save(f'/scratch/cluster/nimit/data/htest/{i:03}.npy', step['semantic'])
+        #np.save(f'/scratch/cluster/nimit/data/htest/{i:03}.npy', step['semantic'])
 
         loss = random.random()
         if score_by is not None and i >= hsize:
