@@ -125,7 +125,7 @@ class ReplayBuffer(torch.utils.data.Dataset):
         if idxs_only:
             return idxs
 
-        return idxs, self.targets[idxs].reshape(256, 256, -1), self.goals[idxs], self.prev_actions[idx], self.actions[idxs]
+        return idxs, self.targets[idxs].reshape(*self.dshape[:2], -1), self.goals[idxs], self.prev_actions[idx], self.actions[idxs]
 
     def __getitem__(self, idx):
         if (idx > self.size).any():

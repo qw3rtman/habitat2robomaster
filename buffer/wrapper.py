@@ -54,7 +54,7 @@ SPLIT = {
 }
 
 class Rollout:
-    def __init__(self, task, proxy, target, mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], height=256, width=256, fov=90, goal='polar', k=0, **kwargs):
+    def __init__(self, task, proxy, target, mode='teacher', student=None, shuffle=True, split='train', dataset='castle', scenes='*', gpu_id=0, sensors=['RGB_SENSOR', 'DEPTH_SENSOR'], height=256, width=256, fov=90, camera_height=1.5, goal='polar', k=0, **kwargs):
         assert task in TASKS
         assert proxy in MODALITIES
         assert target in MODALITIES
@@ -71,6 +71,7 @@ class Rollout:
         self.height = height
         self.width = width
         self.fov = fov
+        self.camera_height = camera_height
         self.mode = mode
         self.student = student
         self.epoch = 1
@@ -80,7 +81,7 @@ class Rollout:
         ####### agent config ##################################################
         agent_config = Config()
         agent_config.INPUT_TYPE               = proxy
-        agent_config.RESOLUTION               = 256
+        agent_config.RESOLUTION               = height
         agent_config.HIDDEN_SIZE              = 512
         agent_config.GOAL_SENSOR_UUID         = 'pointgoal_with_gps_compass'
 
@@ -106,6 +107,7 @@ class Rollout:
             env_config['SIMULATOR'][sensor].HEIGHT = self.height
             env_config['SIMULATOR'][sensor].WIDTH  = self.width
             env_config['SIMULATOR'][sensor].HFOV   = self.fov
+            env_config['SIMULATOR'][sensor].POSITION = [0.0, self.camera_height, 0.0]
         env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle # NOTE: not working?
         env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
         env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
@@ -245,6 +247,8 @@ def replay_episode(env, replay_buffer, score_by=None):
         r, t = step['compass_r'], step['compass_t']
         goal = torch.as_tensor([r, np.cos(-t), np.sin(-t)], dtype=torch.float)
         action = step['action']['teacher' if env.mode == 'both' else env.mode]['action']
+
+        np.save(f'/scratch/cluster/nimit/data/htest/{i:03}.npy', step['semantic'])
 
         loss = random.random()
         if score_by is not None and i >= hsize:

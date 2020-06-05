@@ -16,7 +16,8 @@ import yaml
 import plotly.graph_objects as go
 from PIL import Image, ImageDraw, ImageFont
 
-from wrapper import Rollout, METRICS
+from wrapper import Rollout, METRICS, replay_episode
+from frame_buffer import ReplayBuffer
 
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
@@ -67,11 +68,11 @@ def _eval_scene(scene, parsed, num_episodes):
 
     print(f'[!] Start {scene}')
     env = Rollout('pointgoal', teacher_args['proxy'],
-            student_args['target'], mode='student', shuffle=True,
+            'rgb', mode='greedy', shuffle=True,
             split=split, dataset=dataset, student=net,
             rnn=student_args['method']!='feedforward',
             sensors=sensors, scenes=scene, goal=parsed.goal,
-            **data_args)
+            height=160, width=384, fov=120)
 
     success = np.zeros(num_episodes)
     spl = np.zeros(num_episodes)
@@ -87,33 +88,9 @@ def _eval_scene(scene, parsed, num_episodes):
 
         if student_args['method']!='feedforward':
             net.clean()
-        images = []
 
         env.clean()
-        for i, step in enumerate(env.rollout()):
-            #print(step['compass_r'], step['compass_t'])
-            if i == 0:
-                dtg = env.env.get_metrics()['distance_to_goal']
-
-            frame = Image.fromarray(step['rgb'])
-            if env.target == 'semantic':
-                onehot = make_onehot(step['semantic'])
-                semantic = np.zeros((data_args['height'], data_args['width'], 4), dtype=np.uint8)
-                semantic[...] = BACKGROUND
-                for i in range(min(onehot.shape[-1], len(COLORS))):
-                    semantic[onehot[...,i] == 1] = COLORS[i]
-                semantic = Image.fromarray(semantic, 'RGBA')
-                frame = Image.alpha_composite(frame.convert('RGBA'), semantic)
-
-            draw = ImageDraw.Draw(frame)
-            font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 18)
-            direction = env.get_direction()
-            draw.rectangle((0, 0, 255, 20), fill='black')
-
-            _action = ACTIONS[step['action'][env.mode]['action']]
-            draw.text((0, 0), '({: <5.1f}, {: <5.1f}) {: <4.1f} {}'.format(*direction, env.env.get_metrics()['distance_to_goal'], _action), fill='white', font=font)
-
-            images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
+        replay_episode(env, replay_buffer)
 
         metrics = env.env.get_metrics()
         success[ep] = metrics['success']
@@ -124,10 +101,9 @@ def _eval_scene(scene, parsed, num_episodes):
         #print(f'[{ep+1}/num_episodes] [{scene}] Success: {metrics["success"]}, SPL: {metrics["spl"]:.02f}, SoftSPL: {metrics["softspl"]:.02f}, DTG -> DFG: {dtg:.02f} -> {metrics["distance_to_goal"]:.02f}')
 
         print(total)
-        log = {f'{scene}_video': wandb.Video(np.array(images), fps=20, format='mp4'),
-                'success_mean': np.sum(np.concatenate([_success for _success in all_success.values()])) / total,
-                'spl_mean': np.sum(np.concatenate([_spl for _spl in all_spl.values()])) / total,
-                'softspl_mean': np.sum(np.concatenate([_softspl for _softspl in all_softspl.values()])) / total}
+        log = {'success_mean': np.sum(np.concatenate([_success for _success in all_success.values()])) / total,
+               'spl_mean': np.sum(np.concatenate([_spl for _spl in all_spl.values()])) / total,
+               'softspl_mean': np.sum(np.concatenate([_softspl for _softspl in all_softspl.values()])) / total}
         wandb.run.summary['episode'] += 1
         wandb.log(
                 {('%s/%s' % ('val', k)): v for k, v in log.items()},
@@ -189,14 +165,14 @@ if __name__ == '__main__':
     config = get_model_args(parsed.model)
     config['epoch'] = parsed.epoch
     config['split'] = parsed.split
-    wandb.init(project='pointgoal-rgb2depth-eval-hc', id=run_name, config=config)
+    wandb.init(project='pointgoal-rgb2depth-gen', id=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
     dataset = teacher_args['dataset']
     if parsed.dataset:
         dataset = parsed.dataset
 
-    num_episodes = 10
+    num_episodes = 1
     if dataset in ['gibson', 'mp3d'] and not parsed.scene:
         if student_args['target'] == 'semantic':
             with open(f'splits/mp3d_{parsed.split}.txt', 'r') as f:
@@ -212,13 +188,16 @@ if __name__ == '__main__':
     else: # castle, office
         scenes = [parsed.scene] if parsed.scene else ['*']
         available_scenes = set(scenes)
-        num_episodes = 100
+
+    replay_buffer = ReplayBuffer(int(2e3), history_size=1, dshape=(160, 384, 3), dtype=torch.uint8, goal_size=3)
 
     with torch.no_grad():
         for scene in scenes:
             if scene not in available_scenes:
                 continue
             _eval_scene(scene, parsed, num_episodes)
+
+    replay_buffer.save(Path('/scratch/cluster/nimit/habitat/160x384'))
 
     log = {
         'spl': get_fig(all_spl),

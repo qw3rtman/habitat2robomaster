@@ -25,22 +25,23 @@ def get_model(target, rnn=False, **resnet_kwargs):
     return GoalConditioned(target, **resnet_kwargs)
 
 class GoalConditioned(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, history_size=1, dim_actions=4, goal_size=3, **kwargs):
+    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, history_size=1, dim_actions=4, goal_size=3, height=256, width=256, **kwargs):
         super().__init__()
 
         self.target = target
         assert self.target in MODALITIES
         if self.target == 'depth':
             input_channels = 1
-            target_space = spaces.Box(low=0, high=1, shape=(256, 256, history_size), dtype=np.float32)
+            target_space = spaces.Box(low=0, high=1, shape=(height, width, history_size), dtype=np.float32)
         elif self.target == 'rgb':
             input_channels = 3
-            target_space = spaces.Box(low=0, high=255, shape=(256, 256, 3*history_size), dtype=np.uint8)
+            target_space = spaces.Box(low=0, high=255, shape=(height, width, 3*history_size), dtype=np.uint8)
         elif self.target == 'semantic':
             input_channels = C
-            target_space = spaces.Box(low=0, high=1, shape=(256, 256, C*history_size), dtype=np.bool)
+            target_space = spaces.Box(low=0, high=1, shape=(height, width, C*history_size), dtype=np.bool)
 
         observation_spaces = spaces.Dict({self.target: target_space})
+        print(height, width, observation_spaces)
 
         self.visual_encoder = ResNetEncoder(
             observation_spaces,

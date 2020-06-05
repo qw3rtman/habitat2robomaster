@@ -31,10 +31,12 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
     tick = time.time()
     for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         if config['student_args']['target'] == 'semantic':
-            target = make_onehot(target.reshape(-1, 256, 256)).to(config['device'])
+            target = make_onehot(target.reshape(-1, config['data_args']['height'],
+                config['data_args']['width'])).to(config['device'])
         else:
             target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
-            target = target.reshape(config['data_args']['batch_size'], 256, 256, -1)
+            target = target.reshape(config['data_args']['batch_size'],
+                    config['data_args']['height'], config['data_args']['width'], -1)
 
         goal = torch.as_tensor(goal, device=config['device'], dtype=torch.float32)
         action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
@@ -53,6 +55,7 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
             action[probs < 0.05][left], action[probs < 0.05][right] = 3, 2
             """
 
+        print(target.shape)
         _action = net((target, goal)).logits
         loss = criterion(_action, action)
         loss_mean = loss.mean()
@@ -100,7 +103,7 @@ def checkpoint_project(net, scheduler, replay_buffer, uids, config):
 
 
 def main(config):
-    net = GoalConditioned(**config['student_args']).to(config['device'])
+    net = GoalConditioned(**config['student_args'], **config['data_args']).to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
@@ -108,14 +111,15 @@ def main(config):
     # TODO: should support gibson+mp3d, not just gibson
     sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
-            config['student_args']['target'], mode='teacher', shuffle=False,
-            split='train', dataset=config['teacher_args']['dataset'],
+            config['student_args']['target'], mode=config['teacher_args']['supervision'],
+            shuffle=False, split='train', dataset=config['teacher_args']['dataset'],
             sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
-            k=3 if config['student_args']['dagger'] else 0)
+            k=3 if config['student_args']['dagger'] else 0, **config['data_args'])
 
     uids = set()
     replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
-            dshape=(256,256,3 if config['student_args']['target'] == 'rgb' else 1),
+            dshape=(config['data_args']['height'], config['data_args']['width'],
+                3 if config['student_args']['target'] == 'rgb' else 1),
             dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
     starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s-%s2%s-buffer' % \
             (config['teacher_args']['dataset'], config['teacher_args']['proxy'], config['student_args']['target']))
@@ -140,7 +144,7 @@ def main(config):
 
         if not starter:
             env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
-            for _ in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
+            for _ in range(4 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
                 replay_episode(env, replay_buffer)#, score_by=net)
 
         dataset = replay_buffer.get_dataset()
@@ -164,13 +168,14 @@ def main(config):
 
 def get_run_name(parsed):
     return '-'.join(map(str, [
-        'dagger' if parsed.dagger else 'bc', parsed.method, # paradigm
-        parsed.hidden_size, parsed.resnet_model,            # model
-        'pre' if parsed.pretrained else 'scratch',          # model
-        parsed.dataset, f'{parsed.proxy}2{parsed.target}',  # modalities
-        parsed.history_size, parsed.goal,                   # dataset
-        'aug' if parsed.augmentation else 'noaug',          # dataset
-        parsed.batch_size, parsed.lr, parsed.weight_decay   # hyperparams
+        'dagger' if parsed.dagger else 'bc', parsed.method,                  # paradigm
+        parsed.hidden_size, parsed.resnet_model,                             # model
+        parsed.supervision, 'pre' if parsed.pretrained else 'scratch',       # model
+        parsed.dataset, f'{parsed.proxy}2{parsed.target}',                   # modalities
+        parsed.history_size, parsed.goal,                                    # dataset
+        'aug' if parsed.augmentation else 'noaug',                           # dataset
+        f'{parsed.height}x{parsed.width}', parsed.fov, parsed.camera_height, # dataset
+        parsed.batch_size, parsed.lr, parsed.weight_decay                    # hyperparams
     ])) + f'-v{parsed.description}'
 
 
@@ -182,6 +187,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
     # Teacher args.
+    parser.add_argument('--supervision', choices=['ddppo', 'greedy'], required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--dataset', choices=SPLIT.keys(), required=True)
 
@@ -198,6 +204,10 @@ if __name__ == '__main__':
     # Data args.
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--augmentation', action='store_true')
+    parser.add_argument('--height', type=int, default=256)
+    parser.add_argument('--width', type=int, default=256)
+    parser.add_argument('--fov', type=int, default=90)
+    parser.add_argument('--camera_height', type=float, default=1.5)
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -218,6 +228,7 @@ if __name__ == '__main__':
             'gpu': torch.cuda.get_device_name(0),
 
             'teacher_args': {
+                'supervision': parsed.supervision,
                 'proxy': parsed.proxy,
                 'dataset': parsed.dataset
                 },
@@ -235,7 +246,11 @@ if __name__ == '__main__':
 
             'data_args': {
                 'batch_size': parsed.batch_size,
-                'augmentation': parsed.augmentation
+                'augmentation': parsed.augmentation,
+                'height': parsed.height,
+                'width': parsed.width,
+                'fov': parsed.fov,
+                'camera_height': parsed.camera_height
                 },
 
             'optimizer_args': {
