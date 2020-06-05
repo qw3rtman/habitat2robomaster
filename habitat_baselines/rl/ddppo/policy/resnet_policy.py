@@ -67,18 +67,21 @@ class ResNetEncoder(nn.Module):
         if "rgb" in observation_space.spaces:
             self._n_input_rgb = observation_space.spaces["rgb"].shape[2]
             spatial_size = observation_space.spaces["rgb"].shape[0] // 2
+            height, width = observation_space.spaces["rgb"].shape[:2]
         else:
             self._n_input_rgb = 0
 
         if "semantic" in observation_space.spaces:
             self._n_input_semantic = observation_space.spaces["semantic"].shape[2]
             spatial_size = observation_space.spaces["semantic"].shape[0] // 2
+            height, width = observation_space.spaces["semantic"].shape[:2]
         else:
             self._n_input_semantic = 0
 
         if "depth" in observation_space.spaces:
             self._n_input_depth = observation_space.spaces["depth"].shape[2]
             spatial_size = observation_space.spaces["depth"].shape[0] // 2
+            height, width = observation_space.spaces["depth"].shape[:2]
         else:
             self._n_input_depth = 0
 
@@ -119,6 +122,8 @@ class ResNetEncoder(nn.Module):
                 final_spatial,
                 final_spatial,
             )
+            if height == 160 and width == 384:
+                self.output_shape = (512, 3, 6)
 
     @property
     def is_blind(self):

@@ -144,7 +144,7 @@ def main(config):
 
         if not starter:
             env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
-            for _ in range(4 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
+            for _ in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
                 replay_episode(env, replay_buffer)#, score_by=net)
 
         dataset = replay_buffer.get_dataset()
