@@ -6,6 +6,7 @@ from pathlib import Path
 import random
 import shutil
 from collections import deque, defaultdict
+from operator import itemgetter
 
 import habitat
 from habitat.config import Config
@@ -41,6 +42,7 @@ CONFIGS = {
 DATAPATH = {
     'castle':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz',
     'office':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
+    'replica':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/replica/v1/{split}/{split}.json.gz',
     'mp3d':       '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
     'gibson':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz'
 }
@@ -48,6 +50,7 @@ DATAPATH = {
 SPLIT = {
     'castle':    {'train': 'train', 'val': 'val'},
     'office':    {'train': 'B6ByNegPMKs_train', 'val': 'B6ByNegPMKs_val'},
+    'replica':   {'train': 'train', 'val': 'val', 'test': 'test'},
     'mp3d':      {'train': 'train', 'val': 'val', 'test': 'test'},
     'gibson':    {'train': 'train', 'val': 'val', 'val_mini': 'val_mini',
                   'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'}
@@ -268,3 +271,5 @@ def replay_episode(env, replay_buffer, score_by=None):
             replay_buffer.insert(target_buffer, goal, 0, action, loss=loss)
         else:
             target_buffer[i] = target
+
+    return itemgetter('success', 'spl', 'softspl')(self.env.get_metrics())

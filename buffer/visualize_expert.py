@@ -81,7 +81,9 @@ def visualize(parsed):
 
             frame = Image.fromarray(step['rgb'])
             if env.target == 'semantic':
-                onehot = make_onehot(step['semantic'])
+                mapping = parsed.scene if parsed.dataset == 'replica' else None
+                onehot = make_onehot(step['semantic'], scene=mapping)
+
                 semantic = np.zeros((parsed.height, parsed.width, 4), dtype=np.uint8)
                 semantic[...] = BACKGROUND
                 for i in range(min(onehot.shape[-1], len(COLORS))):
