@@ -46,7 +46,7 @@ def _eval_scene(scene, parsed, num_episodes):
         spl[ep] = metrics['spl']
         softspl[ep] = metrics['softspl']
 
-        print(total)
+        print(metrics)
         log = {'success_mean': np.sum(np.concatenate([_success for _success in all_success.values()])) / total,
                'spl_mean': np.sum(np.concatenate([_spl for _spl in all_spl.values()])) / total,
                'softspl_mean': np.sum(np.concatenate([_softspl for _softspl in all_softspl.values()])) / total}

@@ -96,7 +96,7 @@ class Rollout:
         agent_config.NUM_PROCESSES            = 8
 
         agent_config.freeze()
-        self.agent = PPOAgent(agent_config, ddppo=True, resnet_model=resnet_model)
+        self.agent = PPOAgent(agent_config, resnet_model=resnet_model, ddppo=True)
         #######################################################################
 
         ####### environment config ############################################

@@ -14,7 +14,7 @@ SIMULATOR:
   HABITAT_SIM_V0:
     GPU_DEVICE_ID: 0
     NUM_PROCESSES: 8
-    ALLOW_SLIDING: False
+    ALLOW_SLIDING: True #False
   RGB_SENSOR:
     WIDTH: 256 
     HEIGHT: 256 
@@ -86,7 +86,7 @@ RL:
     # Initialize just the visual encoder backbone with pretrained weights
     pretrained_encoder: False
     # Whether or not the visual encoder backbone will be trained.
-    train_encoder: True
+    train_encoder: False #True
     # Whether or not to reset the critic linear layer
     reset_critic: True
 
