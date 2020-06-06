@@ -123,12 +123,6 @@ def main(config):
             dshape=(config['data_args']['height'], config['data_args']['width'],
                 3 if config['student_args']['target'] == 'rgb' else 1),
             dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
-    starter_buffer = Path('/scratch/cluster/nimit/data/habitat/%s-%s2%s-buffer' % \
-            (config['teacher_args']['dataset'], config['teacher_args']['proxy'], config['student_args']['target']))
-    starter = False
-    if starter_buffer.exists():
-        replay_buffer.load(starter_buffer)
-        starter = True
 
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
 
@@ -149,30 +143,18 @@ def main(config):
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
-        if not starter:
-            #env.env._episode_iterator.max_scene_repeat_episodes = 4 if epoch == 1 else 16
-            for _ep in range(128 if epoch == 1 else 512):#512 if epoch > 1 else 1328):
-                _success, _spl, _softspl = replay_episode(env, replay_buffer)#, score_by=net)
-                success.append(_success); spl.append(_spl); softspl.append(_softspl)
-                wandb.run.summary['success'] = np.mean(success)
-                wandb.run.summary['spl']     = np.mean(spl)
-                wandb.run.summary['softspl'] = np.mean(softspl)
+        for _ep in range(512):
+            _success, _spl, _softspl = replay_episode(env, replay_buffer)#, score_by=net)
+            success.append(_success); spl.append(_spl); softspl.append(_softspl)
+            wandb.run.summary['success'] = np.mean(success)
+            wandb.run.summary['spl']     = np.mean(spl)
+            wandb.run.summary['softspl'] = np.mean(softspl)
 
         dataset = replay_buffer.get_dataset()
         data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
 
         loss_train = loop(net, data, replay_buffer, uids, env, optim, config, mode='train')
         scheduler.step()
-
-        # 4 episodes per scenes to populate the buffer; then 32 scenes per epoch
-        if starter and epoch > 1:
-            #env.env._episode_iterator.max_scene_repeat_episodes = 16
-            for _ in range(256):#512 if epoch > 1 else 1328):
-                _success, _spl, _softspl = replay_episode(env, replay_buffer)#, score_by=net)
-                success.append(_success); spl.append(_spl); softspl.append(_softspl)
-                wandb.run.summary['success'] = np.mean(success)
-                wandb.run.summary['spl']     = np.mean(spl)
-                wandb.run.summary['softspl'] = np.mean(softspl)
 
         wandb.log({'train/loss_epoch': loss_train, 'buffer_capacity': replay_buffer.size}, step=wandb.run.summary['step'])
         if wandb.run.summary['epoch'] % 10 == 0:
