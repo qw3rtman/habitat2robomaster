@@ -32,8 +32,8 @@ def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
     tick = time.time()
     for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
         if config['student_args']['target'] == 'semantic':
-            target = make_onehot(target.reshape(-1, config['data_args']['height'],
-                config['data_args']['width'])).to(config['device'])
+            target = make_onehot(target.reshape(-1, config['data_args']['height'], config['data_args']['width']),
+                    scene=config['teacher_args']['scene'] if config['teacher_args']['dataset'] == 'replica' else None).to(config['device'])
         else:
             target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
             target = target.reshape(config['data_args']['batch_size'],
@@ -113,8 +113,8 @@ def main(config):
     sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
     mode = 'teacher' if config['teacher_args']['supervision'] == 'ddppo' else config['teacher_args']['supervision']
     env = Rollout('pointgoal', config['teacher_args']['proxy'],
-            config['student_args']['target'], mode=mode, shuffle=False,
-            split='train', dataset=config['teacher_args']['dataset'],
+            config['student_args']['target'], mode=mode, shuffle=False, split='train',
+            dataset=config['teacher_args']['dataset'], scene=config['teacher_args']['scene'],
             sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
             k=3 if config['student_args']['dagger'] else 0, **config['data_args'])
 
@@ -132,8 +132,9 @@ def main(config):
 
     sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
 
-    project_name = 'habitat-pointgoal-{}-student'.format(config['teacher_args']['proxy'])
-    wandb.init(project=project_name, config=config, id=config['run_name'], resume='auto')
+    project_name = 'pointgoal-{}2{}-student'.format(config['teacher_args']['proxy'], config['student_args']['target'])
+    wandb.init(project=project_name, config=config, id=str(hash(config['run_name'])),
+            name=config['run_name'], resume=True)
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
     if wandb.run.resumed:
         resume_project(net, scheduler, replay_buffer, uids, config)
@@ -185,7 +186,7 @@ def get_run_name(parsed):
         'dagger' if parsed.dagger else 'bc', parsed.method,                  # paradigm
         parsed.hidden_size, parsed.resnet_model,                             # model
         parsed.supervision, 'pre' if parsed.pretrained else 'scratch',       # model
-        parsed.dataset, f'{parsed.proxy}2{parsed.target}',                   # modalities
+        parsed.dataset, parsed.scene, f'{parsed.proxy}2{parsed.target}',     # modalities
         parsed.history_size, parsed.goal,                                    # dataset
         'aug' if parsed.augmentation else 'noaug',                           # dataset
         f'{parsed.height}x{parsed.width}', parsed.fov, parsed.camera_height, # dataset
@@ -204,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--supervision', choices=['ddppo', 'greedy'], required=True)
     parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
     parser.add_argument('--dataset', choices=SPLIT.keys(), required=True)
+    parser.add_argument('--scene', default='*')
 
     # Student args.
     parser.add_argument('--target', choices=MODALITIES, required=True)
@@ -244,7 +246,8 @@ if __name__ == '__main__':
             'teacher_args': {
                 'supervision': parsed.supervision,
                 'proxy': parsed.proxy,
-                'dataset': parsed.dataset
+                'dataset': parsed.dataset,
+                'scene': parsed.scene
                 },
 
             'student_args': {

@@ -1,6 +1,9 @@
 import torch
 import numpy as np
+import pandas as pd
 from pyquaternion import Quaternion
+from numcodecs import Blosc
+import zarr
 
 from pathlib import Path
 import random
@@ -19,7 +22,7 @@ import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from habitat_baselines.agents.ppo_agents import PPOAgent
 from habitat_dataset import HabitatDataset
-from util import make_onehot
+from util import C, make_onehot
 
 TASKS = ['pointgoal']
 MODES = ['student', 'teacher', 'both', 'greedy']
@@ -195,16 +198,14 @@ class Rollout:
     def step(self, action):
         if self.mode == 'student':
             _action = action['student']
-        elif self.mode == 'teacher':
-            _action = action['teacher']
+        elif self.mode in ['teacher', 'greedy']:
+            _action = action[self.mode]
             if self.i % 10 < self.k:
                 _action = action['random']
         elif self.mode == 'both': # wp 2/iter, take the expert action for 5 steps
             beta = 0.9 * (0.95**(self.epoch/5))
             _action = action['teacher'] if np.random.random() <= beta else action['student']
             self.agent.prev_actions[0, 0] = _action['action'] # for teacher in mode=both
-        elif self.mode == 'greedy':
-            _action = action['greedy']
 
         self.observations = self.env.step(_action)
 
@@ -272,4 +273,29 @@ def replay_episode(env, replay_buffer, score_by=None):
         else:
             target_buffer[i] = target
 
-    return itemgetter('success', 'spl', 'softspl')(self.env.get_metrics())
+    return itemgetter('success', 'spl', 'softspl')(env.env.get_metrics())
+
+
+def save_episode(env, episode_dir):
+    stats, targets = [], []
+    for i, step in enumerate(env.rollout()):
+        targets.append(env.get_target())
+        stats.append({
+            'action': step['action'][env.mode]['action'],
+            'compass_r': step['compass_r'],
+            'compass_t': step['compass_t'],
+            'x': step['position'][0],
+            'y': step['position'][1],
+            'z': step['position'][2],
+            'i': step['rotation'][0],
+            'j': step['rotation'][1],
+            'k': step['rotation'][2],
+            'l': step['rotation'][3]
+        })
+
+    episode_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
+
+    compressor = Blosc(cname='zstd', clevel=3)
+    z = zarr.open(str(episode_dir / env.target), mode='w', shape=(len(targets), *targets[0].shape), chunks=False, dtype='f4', compressor=compressor)
+    z[:] = np.array(targets)
