@@ -59,7 +59,7 @@ def visualize(parsed):
             shuffle=True, split=parsed.split, dataset=parsed.dataset,
             sensors=['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR'],
             scenes=parsed.scene, height=parsed.height, width=parsed.width,
-            fov=parsed.fov, camera_height=parsed.camera_height)
+            fov=parsed.fov, camera_height=parsed.camera_height, k=parsed.k)
 
     success = np.zeros(parsed.num_episodes)
     spl = np.zeros(parsed.num_episodes)
@@ -131,6 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--width', type=int, default=256)
     parser.add_argument('--fov', type=int, default=90)
     parser.add_argument('--camera_height', type=float, default=1.5)
+    parser.add_argument('--k', type=int, default=0)
     parsed = parser.parse_args()
 
     wandb.init(project='pointgoal-visualize')

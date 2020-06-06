@@ -192,7 +192,8 @@ class Rollout:
             except: # GreedyFollowerError, rare but it happens
                 return None
 
-            return {'greedy': {'action': 0 if greedy_action is None else greedy_action}}
+            return {'greedy': {'action': 0 if greedy_action is None else greedy_action},
+                    'random': act_random()}
 
 
     def step(self, action):
