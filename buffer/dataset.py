@@ -16,20 +16,17 @@ def repeater(loader):
         for data in loader:
             yield data
 
-def dataloader(data, batch_size, num_workers):
-    return torch.utils.data.DataLoader(data, shuffle=True, batch_size=batch_size,
-            num_workers=num_workers, drop_last=True, pin_memory=True)
-
-def infinite_dataloader(data, batch_size, num_workers):
-    return repeater(dataloader(data, batch_size, num_workers))
-
 class Wrap(object):
     def __init__(self, data, batch_size, samples, num_workers):
-        self.data = infinite_dataloader(data, batch_size, num_workers)
+        datasets = torch.utils.data.ConcatDataset(data)
+        self.dataloader = torch.utils.data.DataLoader(datasets, shuffle=True,
+                batch_size=batch_size, num_workers=num_workers, drop_last=True,
+                pin_memory=True)
+        self.data = repeater(self.dataloader)
         self.samples = samples
 
     def __iter__(self):
-        for i in range(self.samples):
+        for _ in range(self.samples):
             yield next(self.data)
 
     def __len__(self):
@@ -57,7 +54,7 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
 
         start = time.time()
         data = get_episodes(Path(dataset_dir) / split, target_type, kwargs.get('dataset_size', 1.0))
-        print(f'{split}: {len(data)} in {time.time()-start:.2f}s')
+        print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
         return Wrap(data, batch_size, 25000 if is_train else 2500, num_workers)
 
@@ -66,7 +63,9 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
 
 class HabitatDataset(torch.utils.data.Dataset):
     def __init__(self, episode_dir, target_type, scene):
+        self.episode_dir = episode_dir
         self.target_type = target_type
+        self.scene = scene
 
         with open(episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
@@ -80,19 +79,10 @@ class HabitatDataset(torch.utils.data.Dataset):
         left  = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 2, torch.zeros(1, dtype=torch.bool)])
         right = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 3, torch.zeros(1, dtype=torch.bool)])
 
-        #self.goal_actions = self.actions.clone()
-        #self.goal_actions[:-1][left[2:]]   = 2
-        #self.goal_actions[:-1][right[:-2]] = 3
-        #self.goal_actions[:-1][left[:-2]]  = 2
-        #self.goal_actions[:-1][right[2:]]  = 3
-
-        # semantic can easily fit, ~1.5 GB compressed for 10k episodes
-        #                            28 GB uncompressed
-        self.target = zarr.open(str(episode_dir / target_type), mode='r')[:]
-
+        target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
         self.waypoints = torch.zeros(len(self.actions), 5, 2)
         self.valid = torch.zeros_like(self.actions, dtype=torch.bool)
-        onehot = make_onehot(np.uint8(self.target), scene='apartment_0')
+        onehot = make_onehot(np.uint8(target_f[:]), scene=self.scene)
         for i in range(len(self.actions)-1):
             arc = fit_arc(self.actions, self.compass, onehot, i)
             if arc is None:
@@ -101,21 +91,24 @@ class HabitatDataset(torch.utils.data.Dataset):
             self.waypoints[i] = torch.stack(arc, dim=-1)
 
         self.num_valid = self.valid.sum()
+        self.target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
 
     def __len__(self):
         return self.num_valid
 
     def __getitem__(self, idx):
-        target = self.target[self.valid][idx]
+        idx = torch.arange(self.target_f.shape[0])[self.valid][idx].item()
+
+        target = self.target_f[idx]
         if self.target_type == 'semantic':
             target = make_onehot(np.uint8(target), scene='apartment_0')
 
-        action = self.actions[self.valid][idx]
+        action = self.actions[idx]
 
-        r, t = self.compass[self.valid][idx]
+        r, t = self.compass[idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        waypoints = self.waypoints[self.valid][idx]
+        waypoints = self.waypoints[idx]
         waypoints[:,0] = (2*waypoints[:,0]/384) - 1
         waypoints[:,1] = (2*waypoints[:,1]/160) - 1
 
