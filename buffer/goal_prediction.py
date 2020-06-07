@@ -63,12 +63,10 @@ class Network(resnet.ResnetBase):
         self.normalize = torch.nn.BatchNorm2d(resnet_kwargs['input_channel'])
         self.deconv = spatial_softmax_base()
 
-        self.extract = []
-        for _ in range(4):
-            self.extract.append(nn.Sequential(
-                nn.BatchNorm2d(64),
-                nn.Conv2d(64, steps, 1, 1, 0),
-                SpatialSoftmax(temperature)))
+        self.extract_stop    = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
+        self.extract_forward = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
+        self.extract_left    = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
+        self.extract_right   = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
 
     def forward(self, x, action):
         x = self.normalize(x)
@@ -76,8 +74,8 @@ class Network(resnet.ResnetBase):
         x = self.deconv(x)
 
         return torch.cat([
-            self.extract[0](x[action == 0]),
-            self.extract[1](x[action == 1]),
-            self.extract[2](x[action == 2]),
-            self.extract[3](x[action == 3]),
+            self.extract_stop(x[action == 0]),
+            self.extract_forward(x[action == 1]),
+            self.extract_left(x[action == 2]),
+            self.extract_right(x[action == 3]),
         ])

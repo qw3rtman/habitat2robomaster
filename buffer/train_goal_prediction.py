@@ -71,7 +71,6 @@ def train_or_eval(net, data, optim, is_train, config):
         target = target.to(config['device'])
         if config['data_args']['target'] == 'semantic':
             target = target.reshape(-1, C, 160, 384)
-        actions = actions.to(config['device'])
         waypoints = waypoints.to(config['device'])
 
         _waypoints = net(segmentation, actions) # [-1, 1]
