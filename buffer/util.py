@@ -13,6 +13,8 @@ def make_onehot(semantic, scene=None):
     onehot = torch.zeros((*semantic.shape, C), dtype=torch.float)
     if scene is not None: # replica mapping
         mapping_f = Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets/replica/{scene}/habitat/info_semantic.json')
+        if not mapping_f.exists():
+            mapping_f = Path(f'/Users/nimit/Documents/robomaster/habitat/habitat2robomaster/{scene}.json')
         with open(mapping_f) as f:
             j = json.load(f)
         instance_to_class = np.array(j['id_to_label'])
@@ -45,18 +47,29 @@ def rotate_origin_only(x, y, radians):
 
     return xx, yy
 
-def fit_arc(actions, compass, i, j):
-    movement = actions[i:i+50] == 1
-    k = np.searchsorted(np.cumsum(movement), j).item()
+def fit_arc(actions, compass, onehot, i):
+    movement = actions[i:] == 1
 
-    r, t = compass
-    R = r[i:i+k][movement[:k]]-r[i]   # relative
-    T = t[i:i+k][movement[:k]]-t[i+1] # relative
-    x, y = rotate_origin_only(R*np.cos(T), R*np.sin(T), np.pi/2)
-    if T.shape[0] > 1 and (y < 0).sum() == 0: # if not behind camera
-        _t = np.linspace(T[0], T[-1], 5)
-        _r = np.linspace(R[0], R[-1], 5)
-        _x, _y = rotate_origin_only(_r*np.cos(_t), _r*np.sin(_t), np.pi/2)
-        return _x, _y
+    for j in range(10, 1, -1):
+        k = np.searchsorted(np.cumsum(movement), j).item()
+        #l = np.where(~movement[k:] == 1)[0]
+        #if len(l) > 0:
+            #k = min(actions[i:].shape[0], k+l[0])
+
+        r, t = compass.T
+        t = np.arccos(np.cos(-t))
+        R = r[i:i+k][movement[:k]]-r[i]   # relative
+        T = t[i:i+k][movement[:k]]-t[i] # absolute
+        x, y = rotate_origin_only(R*np.cos(T), R*np.sin(T), np.pi/2)
+        if T.shape[0] > 1 and (y < 0).sum() == 0: # if behind camera, then use prev
+            _t = np.linspace(T[0], T[-1], 5)
+            _r = np.linspace(R[0], R[-1], 5)
+            _x, _y = rotate_origin_only(_r*np.cos(_t), _r*np.sin(_t), np.pi/2)
+            u, v = world_to_cam(_x, _y)
+            v = 159-torch.clamp(v, min=0, max=159)
+            u = torch.clamp(u, min=0, max=383)
+
+            if onehot[i,int(v[-1]),int(u[-1]),0]:
+                return u, v
 
     return None

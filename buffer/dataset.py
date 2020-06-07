@@ -10,7 +10,9 @@ import time
 
 from util import world_to_cam, fit_arc, make_onehot
 
-memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
+ACTIONS = ['S', 'F', 'L', 'R']
+
+#memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, target, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
@@ -40,45 +42,40 @@ def get_dataset(dataset_dir, target, batch_size=128, num_workers=0, **kwargs):
 
 
 class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, target, scene):
+    def __init__(self, episode_dir, target_type, scene):
+        self.target_type = target_type
+
         with open(episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
         x = np.genfromtxt(measurements, delimiter=',', dtype=np.float32).reshape(-1, 10)
         # action,compass_r,compass_t,x,y,z,i,j,k,l
-        self.actions = torch.LongTensor(x[:, 1])
+        self.actions = torch.LongTensor(x[:, 0])
         self.compass = torch.as_tensor(x[:, 1:3])
         self.positions = torch.as_tensor(x[:, 3:6])
         self.rotations = torch.as_tensor(x[:, 6:])
 
+        left  = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 2, torch.zeros(1, dtype=torch.bool)])
+        right = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 3, torch.zeros(1, dtype=torch.bool)])
+
+        #self.goal_actions = self.actions.clone()
+        #self.goal_actions[:-1][left[2:]]   = 2
+        #self.goal_actions[:-1][right[:-2]] = 3
+        #self.goal_actions[:-1][left[:-2]]  = 2
+        #self.goal_actions[:-1][right[2:]]  = 3
+
         # semantic can easily fit, ~1.5 GB compressed for 10k episodes
         #                            28 GB uncompressed
-        self.target = zarr.open(str(episode_dir / target), mode='r')[:]
+        self.target = zarr.open(str(episode_dir / target_type), mode='r')[:]
 
         self.waypoints = torch.zeros(len(self.actions), 5, 2)
         self.valid = torch.zeros_like(self.actions, dtype=torch.bool)
         onehot = make_onehot(np.uint8(self.target), scene='apartment_0')
-        print(onehot.shape)
         for i in range(len(self.actions)-1):
-            j = 20
-            while True:
-                #try:
-                arc = fit_arc(self.actions, self.compass, i, j)
-                #except:
-                    #break
-                if arc is None:
-                    break
-                x, y = arc
-                u, v = world_to_cam(x, y)
-                v = 160-torch.clamp(v, min=0, max=159)
-                u = torch.clamp(u, min=0, max=383)
-                
-                print(onehot[i,int(v[-1]),int(u[-1]),0])
-                if onehot[i,int(v[-1]),int(u[-1]),0]:
-                    self.valid[i] = True
-                    self.waypoints[i] = torch.stack([u, v], dim=-1)
-                    break
-                j -= 1
-            print(i,v,u)
+            arc = fit_arc(self.actions, self.compass, onehot, i)
+            if arc is None:
+                continue
+            self.valid[i] = True
+            self.waypoints[i] = torch.stack(arc, dim=-1)
 
         self.num_valid = self.valid.sum()
 
@@ -87,8 +84,8 @@ class HabitatDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         target = self.target[self.valid][idx]
-        if self.target == 'semantic':
-            target = make_onehot(target, scene='apartment_0')
+        if self.target_type == 'semantic':
+            target = make_onehot(np.uint8(target), scene='apartment_0')
 
         action = self.actions[self.valid][idx]
 
@@ -99,3 +96,35 @@ class HabitatDataset(torch.utils.data.Dataset):
         waypoints = self.waypoints[self.valid][idx]
 
         return target, action, goal, waypoints
+
+if __name__ == '__main__':
+    import argparse
+    import cv2
+    from PIL import Image
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset_dir', type=Path, required=True)
+    parsed = parser.parse_args()
+
+    d = HabitatDataset(parsed.dataset_dir, 'semantic', 'apartment_0')
+    i = 0
+    while i < len(d):
+        target, action, goal, waypoints = d[i]
+        semantic = cv2.cvtColor(255*np.uint8(target).reshape(160,384), cv2.COLOR_GRAY2RGB)
+        for l in range(waypoints.shape[0]):
+            cv2.circle(semantic, (int(waypoints[l,0]), int(waypoints[l,1])), 2, (255, 0, 0), -1)
+        cv2.imshow('semantic', cv2.cvtColor(semantic, cv2.COLOR_BGR2RGB))
+        #print(ACTIONS[d.goal_actions[i]])
+
+        key = cv2.waitKey(0)
+        if key == 97:
+            i -= 1
+        elif key == 106:
+            i -= 10
+        elif key == 100:
+            i += 1
+        elif key == 108:
+            i += 10
+        elif key == 113:
+            cv2.destroyAllWindows()
+            break
