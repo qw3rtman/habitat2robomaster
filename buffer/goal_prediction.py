@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import time
+
 from . import resnet
 
 
@@ -72,4 +74,10 @@ class Network(resnet.ResnetBase):
         x = self.normalize(x)
         x = self.conv(x)
         x = self.deconv(x)
-        return self.extract[action](x)
+
+        return torch.cat([
+            self.extract[0](x[action == 0]),
+            self.extract[1](x[action == 1]),
+            self.extract[2](x[action == 2]),
+            self.extract[3](x[action == 3]),
+        ])

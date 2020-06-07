@@ -4,27 +4,50 @@ from joblib import Memory
 import zarr
 
 from pathlib import Path
+from itertools import repeat
 import time
 
-#from utils import StaticWrap # TODO: refactor and pull from habitat2robomaster
-
-from util import world_to_cam, fit_arc, make_onehot
+from .util import world_to_cam, fit_arc, make_onehot
 
 ACTIONS = ['S', 'F', 'L', 'R']
 
-#memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, target, batch_size=128, num_workers=0, **kwargs):
+def repeater(loader):
+    for loader in repeat(loader):
+        for data in loader:
+            yield data
+
+def dataloader(data, batch_size, num_workers):
+    return torch.utils.data.DataLoader(data, shuffle=True, batch_size=batch_size,
+            num_workers=num_workers, drop_last=True, pin_memory=True)
+
+def infinite_dataloader(data, batch_size, num_workers):
+    return repeater(dataloader(data, batch_size, num_workers))
+
+class Wrap(object):
+    def __init__(self, data, batch_size, samples, num_workers):
+        self.data = infinite_dataloader(data, batch_size, num_workers)
+        self.samples = samples
+
+    def __iter__(self):
+        for i in range(self.samples):
+            yield next(self.data)
+
+    def __len__(self):
+        return self.samples
+
+memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
+def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
-    def get_episodes(split_dir, target, dataset_size):
+    def get_episodes(split_dir, target_type, dataset_size):
         episode_dirs = list(split_dir.iterdir())
         num_episodes = int(max(1, dataset_size * len(episode_dirs)))
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            data.append(HabitatDataset(episode_dir, target))
+            data.append(HabitatDataset(episode_dir, target_type, scene))
 
-            if i % 500 == 0:
+            if i % 100 == 0:
                 print(f'[{i:05}/{num_episodes}]')
 
         return data
@@ -33,10 +56,10 @@ def get_dataset(dataset_dir, target, batch_size=128, num_workers=0, **kwargs):
         split = 'train' if is_train else 'val'
 
         start = time.time()
-        data = get_episodes(Path(dataset_dir) / split, target, kwargs.get('dataset_size', 1.0))
+        data = get_episodes(Path(dataset_dir) / split, target_type, kwargs.get('dataset_size', 1.0))
         print(f'{split}: {len(data)} in {time.time()-start:.2f}s')
 
-        return StaticWrap(data, batch_size, 25000 if is_train else 2500, num_workers)
+        return Wrap(data, batch_size, 25000 if is_train else 2500, num_workers)
 
     return make_dataset(True), make_dataset(False)
 
@@ -92,8 +115,9 @@ class HabitatDataset(torch.utils.data.Dataset):
         r, t = self.compass[self.valid][idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        # TODO: waypoints!
         waypoints = self.waypoints[self.valid][idx]
+        waypoints[:,0] = (2*waypoints[:,0]/384) - 1
+        waypoints[:,1] = (2*waypoints[:,1]/160) - 1
 
         return target, action, goal, waypoints
 
