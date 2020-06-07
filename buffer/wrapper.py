@@ -74,6 +74,8 @@ class Rollout:
         self.task = task
         self.proxy = proxy
         self.target = target
+        self.dataset = dataset
+        self.scenes = scenes
         self.height = height
         self.width = width
         self.fov = fov
@@ -161,7 +163,9 @@ class Rollout:
         def act_student():
             target = self.get_target()
             if self.target == 'semantic':
-                target = make_onehot(target.reshape(-1, self.height, self.width)).to(self.device)
+                scene = self.scenes if self.dataset == 'replica' else None
+                print(scene)
+                target = make_onehot(np.uint8(target.reshape(-1, self.height, self.width)), scene).to(self.device)
             else:
                 target = torch.as_tensor(target, dtype=torch.float, device=self.device).unsqueeze(dim=0)
 

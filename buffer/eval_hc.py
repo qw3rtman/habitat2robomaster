@@ -97,7 +97,8 @@ def _eval_scene(scene, parsed, num_episodes):
 
             frame = Image.fromarray(step['rgb'])
             if env.target == 'semantic':
-                onehot = make_onehot(step['semantic'])
+                _scene = scene if dataset == 'replica' else None
+                onehot = make_onehot(step['semantic'], scene=_scene)
                 semantic = np.zeros((data_args['height'], data_args['width'], 4), dtype=np.uint8)
                 semantic[...] = BACKGROUND
                 for i in range(min(onehot.shape[-1], len(COLORS))):
@@ -150,7 +151,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset') # override's config.yaml
     parser.add_argument('--scene')   # ^^^
     parser.add_argument('--split', required=True)
-    parser.add_argument('--goal')#, choices=['polar', 'cartesian'])
+    parser.add_argument('--goal', default='polar')#, choices=['polar', 'cartesian'])
     parser.add_argument('--redo', action='store_true')
     parsed = parser.parse_args()
 
@@ -189,7 +190,7 @@ if __name__ == '__main__':
     config = get_model_args(parsed.model)
     config['epoch'] = parsed.epoch
     config['split'] = parsed.split
-    wandb.init(project='pointgoal-rgb2depth-eval-hc', name=run_name, config=config)
+    wandb.init(project='pointgoal-{}2{}-eval'.format(teacher_args['proxy'], student_args['target']), name=run_name, config=config)
     wandb.run.summary['episode'] = 0
 
     dataset = teacher_args['dataset']

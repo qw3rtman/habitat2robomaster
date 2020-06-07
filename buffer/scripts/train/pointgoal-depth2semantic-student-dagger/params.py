@@ -12,14 +12,14 @@ for supervision in ['greedy', 'ddppo']:
                 for lr in [1e-3, 1e-4]:
                     for weight_decay in [0.0]:
                         job = f"""python buffer/train.py \\
-    --description {unique}-v8 \\
+    --description "k=6-{unique}-v8" \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --hidden_size 256 \\
     --resnet_model {resnet_model} \\
     --history_size 1 \\
     --supervision {supervision} \\
     --method {method} \\
-    --dagger \\
+    --dagger 6 \\
     --dataset replica \\
     --scene apartment_0 \\
     --goal polar \\

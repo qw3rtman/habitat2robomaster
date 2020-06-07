@@ -116,7 +116,7 @@ def main(config):
             config['student_args']['target'], mode=mode, shuffle=False, split='train',
             dataset=config['teacher_args']['dataset'], scene=config['teacher_args']['scene'],
             sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
-            k=3 if config['student_args']['dagger'] else 0, **config['data_args'])
+            k=config['student_args']['dagger'], **config['data_args'])
 
     uids = set()
     replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
@@ -165,11 +165,11 @@ def main(config):
 
 def get_run_name(parsed):
     return '-'.join(map(str, [
-        'dagger' if parsed.dagger else 'bc', parsed.method,                  # paradigm
+        'dagger' if parsed.dagger > 0 else 'bc', parsed.method,              # paradigm
         parsed.hidden_size, parsed.resnet_model,                             # model
         parsed.supervision, 'pre' if parsed.pretrained else 'scratch',       # model
         parsed.dataset, parsed.scene, f'{parsed.proxy}2{parsed.target}',     # modalities
-        parsed.history_size, parsed.goal,                                    # dataset
+        parsed.history_size, parsed.goal, # f'k={parsed.dagger}'             # dataset
         'aug' if parsed.augmentation else 'noaug',                           # dataset
         f'{parsed.height}x{parsed.width}', parsed.fov, parsed.camera_height, # dataset
         parsed.batch_size, parsed.lr, parsed.weight_decay                    # hyperparams
@@ -196,7 +196,7 @@ if __name__ == '__main__':
     parser.add_argument('--history_size', type=int, default=1)
     parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
     parser.add_argument('--goal', choices=['polar', 'cartesian'], required=True)
-    parser.add_argument('--dagger', action='store_true')
+    parser.add_argument('--dagger', type=int, default=0)
     parser.add_argument('--pretrained', action='store_true')
 
     # Data args.

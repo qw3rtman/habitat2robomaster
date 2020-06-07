@@ -17,40 +17,38 @@ parser.add_argument('--redo', action='store_true')
 parser.add_argument('--split', type=str, default='val')
 parsed = parser.parse_args()
 
+api = wandb.Api()
+run_dirs = list(checkpoint_root.glob(parsed.glob))
+print(run_dirs)
+
 runs = {}
 if parsed.epoch is not None: # pick from wandb
-    run_dirs = list(wandb_root.glob(parsed.glob))
-    run_dirs.sort(key=os.path.getmtime)
-    for run_dir in run_dirs:
-        key = '-'.join(run_dir.stem.split('-')[2:])
-        model = run_dir / f'model_{parsed.epoch:03}.t7'
-        if model.exists():
-            runs[key] = model, parsed.epoch
-else: # use model_latest from checkpoints
-    api = wandb.Api()
-    run_dirs = list(checkpoint_root.glob(parsed.glob))
     for run_dir in run_dirs:
         key = '-'.join(run_dir.name.split('-'))
 
-        # copy config.yaml
-        wandb_dirs = list(wandb_root.glob(f'*{key}'))
-        wandb_dirs.sort(key=os.path.getmtime)
-        print(wandb_dirs)
-
-        i = -1
-        while not (wandb_dirs[i]/'config.yaml').exists():
-            i -= 1
-        shutil.copy(wandb_dirs[i]/'config.yaml', run_dir/'config.yaml')
+        # get epoch from wandb
+        run = api.runs(f'qw3rtman/pointgoal-depth2semantic-student/',
+                {'config.run_name': key})[0]
+        model = list(wandb_root.glob(f'*{run.id}'))[0]/f'model_{parsed.epoch:03}.t7'
+        if model.exists():
+            print(model)
+            runs[key] = model, parsed.epoch
+else: # use model_latest from checkpoints
+    for run_dir in run_dirs:
+        key = '-'.join(run_dir.name.split('-'))
 
         # get epoch from wandb
-        run = api.run(f'qw3rtman/habitat-pointgoal-depth-student/{key}')
-        epoch = int(run.summary['epoch'])#10*(run.summary['epoch']//10) # floor to nearest 10
+        run = api.runs(f'qw3rtman/pointgoal-depth2semantic-student/',
+                {'config.run_name': key})[0]
+        config_f = list(wandb_root.glob(f'*{run.id}'))[0]/'config.yaml'
+        shutil.copy(config_f, run_dir/'config.yaml')
 
+        epoch = int(run.summary['epoch'])
         run_name = f'{key}-model_{epoch:03}-{parsed.split}-new'
         if not parsed.redo:
             try:
                 api.flush()
-                run = api.run(f'qw3rtman/pointgoal-rgb2depth-eval-hc/{run_name}')
+                run = api.run(f'qw3rtman/pointgoal-depth2semantic-eval/{run_name}')
                 continue
             except:
                 pass
