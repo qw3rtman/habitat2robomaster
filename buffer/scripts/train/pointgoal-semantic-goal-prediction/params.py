@@ -11,10 +11,10 @@ for batch_size in [64, 128]:
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [0.0]:
                     job = f"""python -m buffer.train_goal_prediction \\
-    --description {unique}-v1-TESTING \\
+    --description {unique}-v2 \\
     --max_epoch 1000 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
-    --dataset_dir /scratch/cluster/nimit/data/testing/replica-apartment_0 \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\
     --resnet_model {resnet_model} \\
     --temperature {temperature} \\
     --target semantic \\
