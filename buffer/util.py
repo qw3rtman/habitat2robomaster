@@ -41,6 +41,9 @@ def world_to_cam(x, y):
     u, v = torch.mm(A, M)[:2]
     return u, v
 
+def cam_to_world(u, v):
+    return torch.mm(A.inverse(), torch.stack([u, v, torch.ones_like(u)]))[:2]
+
 def rotate_origin_only(x, y, radians):
     """Only rotate a point around the origin (0, 0)."""
     xx = x * math.cos(radians) + y * math.sin(radians)

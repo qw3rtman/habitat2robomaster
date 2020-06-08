@@ -7,7 +7,7 @@ from pathlib import Path
 from itertools import repeat
 import time
 
-from .util import world_to_cam, fit_arc, make_onehot, Wrap, C
+from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(source_teacher, goal_prediction, dataset_dir, scene, batch_size=128, num_workers=0, **kwargs):
@@ -44,14 +44,36 @@ class TargetDataset(torch.utils.data.Dataset):
 
         self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
 
-        onehot = make_onehot(zarr.open(str(self.episode_dir / 'semantic'), mode='r')[:])
-        onehot = torch.as_tensor(onehot.reshape(-1, C, 160, 384), dtype=torch.float).cuda()
-        self.waypoints = goal_prediction(onehot)
-        # TODO: unnormalize, unproject to recover r, t
+        source_teacher.eval()
+        goal_prediction.eval()
 
-        actions = torch.empty(self.waypoints.shape[:2], dtype=torch.long)
-        for t in range(5):
-            actions[:, t] = source_teacher(onehot, goal[:, t])
+        onehot = make_onehot(np.uint8(zarr.open(str(self.episode_dir / 'semantic'), mode='r')[:]), scene=scene)
+        onehot = torch.as_tensor(onehot.reshape(-1, C, 160, 384), dtype=torch.float).cuda()
+        self.waypoints = torch.empty(self.rgb_f.shape[0], 4, 5, 2)
+        with torch.no_grad():
+            for a in range(4):
+                self.waypoints[:, a] = goal_prediction(onehot,
+                        a*torch.ones(self.rgb_f.shape[0]).cuda()).cpu()
+
+        self.waypoints[..., 0] = (self.waypoints[..., 0] + 1) * 384 / 2
+        self.waypoints[..., 1] = (self.waypoints[..., 1] + 1) * 160 / 2
+
+        rcost, rsint = rotate_origin_only(*cam_to_world(
+            self.waypoints[..., 0].flatten(),
+            159-self.waypoints[..., 1].flatten()
+        ), -np.pi/2)
+        r = np.sqrt(np.square(rcost) + np.square(rsint)).reshape(-1, 4, 5)# negative?
+        t = np.arctan(rsint/rcost).reshape(-1, 4, 5)#[..., -1]
+        t[np.isnan(t)] = 0. # looking forward
+
+        self.goal = torch.stack([r, np.cos(-t), np.sin(-t)], dim=-1).cuda()
+        self.actions = torch.empty(self.goal.shape[:3], dtype=torch.long)
+        onehot = onehot.reshape(-1, 160, 384, C)
+        with torch.no_grad():
+            for a in range(4):
+                for t in range(5):
+                    self.actions[:,a,t] = source_teacher((onehot, self.goal[:,a,t])).sample().squeeze()
+                    #print(self.actions[:,a,t], self.goal[:,a,t,0])
 
     def __len__(self):
         return self.rgb_f.shape[0] * 5
