@@ -67,15 +67,18 @@ class Network(resnet.ResnetBase):
         self.extract_forward = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
         self.extract_left    = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
         self.extract_right   = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0), SpatialSoftmax(temperature))
+        
+        self.branches = [self.extract_stop, self.extract_forward,
+                         self.extract_left, self.extract_right]
 
     def forward(self, x, action):
         x = self.normalize(x)
         x = self.conv(x)
         x = self.deconv(x)
 
-        return torch.cat([
-            self.extract_stop(x[action == 0]),
-            self.extract_forward(x[action == 1]),
-            self.extract_left(x[action == 2]),
-            self.extract_right(x[action == 3]),
-        ])
+        out = []
+        branches = torch.unique(action.long())
+        for b in branches:
+            out.append(self.branches[b.item()](x[action==b.item()]))
+
+        return torch.cat(out)

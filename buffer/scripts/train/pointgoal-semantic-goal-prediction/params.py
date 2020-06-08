@@ -10,7 +10,7 @@ for batch_size in [64, 128]:
         for temperature in [0.1, 1.0, 10.0]:
             for lr in [1e-3, 1e-4]:
                 for weight_decay in [0.0]:
-                    job = f"""python buffer/train_goal_prediction.py \\
+                    job = f"""python -m buffer.train_goal_prediction \\
     --description {unique}-v1-TESTING \\
     --max_epoch 1000 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\

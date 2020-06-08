@@ -69,7 +69,8 @@ def fit_arc(actions, compass, onehot, i):
             v = 159-torch.clamp(v, min=0, max=159)
             u = torch.clamp(u, min=0, max=383)
 
-            if onehot[i,int(v[-1]),int(u[-1]),0]:
+            # walkable should be below the horizon (no stairs)
+            if int(v[-1]) <= (159/2) and onehot[i,int(v[-1]),int(u[-1]),0]:
                 return u, v
 
     return None

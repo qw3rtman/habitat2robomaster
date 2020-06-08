@@ -56,7 +56,7 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
         data = get_episodes(Path(dataset_dir) / split, target_type, kwargs.get('dataset_size', 1.0))
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
-        return Wrap(data, batch_size, 25000 if is_train else 2500, num_workers)
+        return Wrap(data, batch_size, 25000 if is_train else 250, num_workers)
 
     return make_dataset(True), make_dataset(False)
 
@@ -108,7 +108,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         r, t = self.compass[idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        waypoints = self.waypoints[idx]
+        waypoints = self.waypoints[idx].clone().detach()
         waypoints[:,0] = (2*waypoints[:,0]/384) - 1
         waypoints[:,1] = (2*waypoints[:,1]/160) - 1
 

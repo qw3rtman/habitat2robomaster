@@ -16,14 +16,21 @@ from .util import C, make_onehot
 import wandb
 
 ACTIONS = ['S', 'F', 'L', 'R']
-BACKGROUND = (0,0,0,0)
+BACKGROUND = (0,0,0)
 COLORS = [
-    (0,47,0,150),
-    (253,253,17,150)
+    (0,47,0),
+    (253,253,17)
 ]
 
 def _log_visuals(segmentation, loss, waypoints, _waypoints, action):
     images = list()
+    waypoints_norm = torch.stack([
+        ((waypoints[..., 0] + 1) / 2) * 384,
+        ((waypoints[..., 1] + 1) / 2) * 160], dim=-1)
+    
+    _waypoints_norm = torch.stack([
+        ((_waypoints[..., 0] + 1) / 2) * 384,
+        ((_waypoints[..., 1] + 1) / 2) * 160], dim=-1)
 
     for i in range(min(segmentation.shape[0], 64)):
         canvas = np.zeros((segmentation.shape[-2], segmentation.shape[-1], 3), dtype=np.uint8)
@@ -35,15 +42,15 @@ def _log_visuals(segmentation, loss, waypoints, _waypoints, action):
         canvas = Image.fromarray(canvas)
         draw = ImageDraw.Draw(canvas)
 
-        for x, y in waypoints[i].detach().cpu().numpy().copy():
+        for x, y in waypoints_norm[i].detach().cpu().numpy().copy():
             draw.ellipse((x-2, y-2, x+2, y+2), fill=(0, 0, 255))
 
-        for x, y in _waypoints[i].detach().cpu().numpy().copy():
+        for x, y in _waypoints_norm[i].detach().cpu().numpy().copy():
             draw.ellipse((x-2, y-2, x+2, y+2), fill=(255, 0, 0)) 
 
         loss_i = loss[i].sum()
         draw.text((5, 10), 'Loss: %.2f' % loss_i)
-        draw.text((5, 20), ' (%s)' % ACTIONS[action[i]])
+        draw.text((5, 20), ' (%s) ' % ACTIONS[action[i]])
         images.append((loss_i, torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
 
     images.sort(key=lambda x: x[0], reverse=True)
@@ -67,13 +74,12 @@ def train_or_eval(net, data, optim, is_train, config):
     losses = list()
 
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for target, actions, goals, waypoints in iterator:
+    for i, (target, actions, goals, waypoints) in enumerate(iterator):
         target = target.to(config['device'])
-        if config['data_args']['target'] == 'semantic':
-            target = target.reshape(-1, C, 160, 384)
+        target = target.reshape(config['data_args']['batch_size'], C, 160, 384)
         waypoints = waypoints.to(config['device'])
 
-        _waypoints = net(segmentation, actions) # [-1, 1]
+        _waypoints = net(target, actions) # [-1, 1]
 
         loss = criterion(waypoints, _waypoints).mean((1, 2))
         loss_mean = loss.mean()
@@ -87,9 +93,9 @@ def train_or_eval(net, data, optim, is_train, config):
             wandb.run.summary['step'] += 1
 
         metrics = {'loss': loss_mean.item(),
-                   'images_per_second': segmentation.shape[0] / (time.time() - tick)}
+                   'images_per_second': target.shape[0] / (time.time() - tick)}
         if i % 1000 == 0:
-            metrics['images'] = _log_visuals(segmentation, loss, waypoints, _waypoints, actions)
+            metrics['images'] = _log_visuals(target, loss, waypoints, _waypoints, actions)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
@@ -111,17 +117,15 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    data_train, data_val = get_dataset(**config['data_args'])
+    data_train, data_val = get_dataset(**config['data_args'], scene='apartment_0')
     net = GoalPredictionModel(**config['model_args']).to(config['device'])
-    for b, branch in net.extract:
-        net.extract[b] = branch.to(config['device'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
 
-    project_name = 'pointgoal-{}-goal-prediction'.format(config['data_args']['target'])
+    project_name = 'pointgoal-{}-goal-prediction'.format(config['data_args']['target_type'])
     wandb.init(project=project_name, config=config, name=config['run_name'],
-            resume=True, id=str(hash(config['run_name']))
+            resume=True, id=str(hash(config['run_name'])))
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
     if wandb.run.resumed:
         resume_project(net, optim, scheduler, config)
@@ -185,7 +189,7 @@ if __name__ == '__main__':
                 'temperature': parsed.temperature
                 },
             'data_args': {
-                'target': parsed.target,
+                'target_type': parsed.target,
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size
                 },

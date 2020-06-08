@@ -162,7 +162,7 @@ class ResNet(nn.Module):
 model_funcs = {
         'resnet18': (BasicBlock, [2, 2, 2, 2], -1),
         'resnet34': (BasicBlock, [3, 4, 6, 3], 512),
-        'resnet50': (Bottleneck, [3, 4, 6, 3], -1),
+        'resnet50': (Bottleneck, [3, 4, 6, 3], -1), # ???
         'resnet101': (Bottleneck, [3, 4, 23, 3], -1),
         'resnet152': (Bottleneck, [3, 8, 36, 3], -1),
         }
