@@ -21,21 +21,21 @@ from wrapper import Rollout, save_episode
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import get_model
-from util import C, make_onehot
 
 
 def generate_samples(parsed):
     print(f'[!] Start {parsed.scene}')
     env = Rollout('pointgoal', 'depth', parsed.target, mode=parsed.mode,
             shuffle=True, split=parsed.split, dataset=parsed.dataset,
-            sensors=[f'{parsed.target.upper()}_SENSOR', 'DEPTH_SENSOR'],
+            #sensors=[f'{parsed.target.upper()}_SENSOR', 'DEPTH_SENSOR'],
+            sensors=[f'RGB_SENSOR', 'SEMANTIC_SENSOR', 'DEPTH_SENSOR'],
             scenes=parsed.scene, height=parsed.height, width=parsed.width,
             fov=parsed.fov, camera_height=parsed.camera_height)
 
     success, spl, softspl = [], [], []
     for ep in range(parsed.num_episodes):
         print(f'[!] Start {parsed.scene} ({ep})')
-        save_episode(env, parsed.dataset_dir / f'{ep:06}')
+        save_episode(env, parsed.dataset_dir / f'{ep:06}', save=['semantic', 'rgb'])
 
         metrics = env.env.get_metrics()
         success.append(metrics['success'])
@@ -43,6 +43,7 @@ def generate_samples(parsed):
         softspl.append(metrics['softspl'])
         print(f'[!] End {parsed.scene} ({ep})', metrics)
 
+        wandb.run.summary['frames'] += env.i
         wandb.run.summary['episode'] += 1
         wandb.run.summary['success'] = np.mean(success)
         wandb.run.summary['spl'] = np.mean(spl)
@@ -69,6 +70,7 @@ if __name__ == '__main__':
 
     wandb.init(project='pointgoal-generate-offline-samples')
     wandb.config.update(parsed)
+    wandb.run.summary['frames'] = 0
     wandb.run.summary['episode'] = 0
 
     generate_samples(parsed)

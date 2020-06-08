@@ -62,25 +62,23 @@ def train_or_eval(net, data, optim, is_train, config):
         desc = 'val'
         net.eval()
 
-    tick = time.time()
     losses = list()
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
+    correct, total = 0, 0
+    tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (target, actions, goals, waypoints) in enumerate(iterator):
+    for i, (target, action) in enumerate(iterator):
         target = target.to(config['device'])
-        target = target.reshape(config['data_args']['batch_size'], C, 160, 384)
+        action = action.to(config['device'])
 
-        waypoints = waypoints.to(config['device'])
-        waypoints[..., 0] = (waypoints[..., 0] + 1) * 384 / 2
-        waypoints[..., 1] = (waypoints[..., 1] + 1) * 160 / 2
+        _action = net((target, goal)).logits
 
-        _waypoints = net(target, actions) # [-1, 1]
-        _waypoints[..., 0] = (_waypoints[..., 0] + 1) * 384 / 2
-        _waypoints[..., 1] = (_waypoints[..., 1] + 1) * 160 / 2
+        loss = criterion(_action, action)
+        loss_mean = loss.mean()
 
-        loss = torch.abs(waypoints - _waypoints)
-        loss_mean = loss.sum((1, 2)).mean()
-        losses.append(loss_mean.item())
+        correct += (action == _action.argmax(dim=1)).sum().item()
+        total += target.shape[0]
 
         if is_train:
             loss_mean.backward()
@@ -88,6 +86,8 @@ def train_or_eval(net, data, optim, is_train, config):
             optim.zero_grad()
 
             wandb.run.summary['step'] += 1
+
+        losses.append(loss_mean.item())
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': target.shape[0] / (time.time() - tick)}
@@ -98,6 +98,7 @@ def train_or_eval(net, data, optim, is_train, config):
 
         tick = time.time()
 
+    wandb.log({f'{desc}/accuracy': correct/total}, step=wandb.run.summary['step'])
     return np.mean(losses)
 
 
@@ -114,7 +115,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = GoalPredictionModel(**config['model_args']).to(config['device'])
+    net = GoalConditioned(**config['student_args'], **config['data_args']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'], scene='apartment_0')
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
@@ -156,12 +157,11 @@ if __name__ == '__main__':
 
     # Model args.
     parser.add_argument('--resnet_model', default='resnet18')
-    parser.add_argument('--temperature', type=float, default=1.0)
+    parser.add_argument('--hidden_size', type=int, required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', required=True)
     parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--target', required=True, choices=['semantic', 'depth'])
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -169,7 +169,7 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'lr', 'weight_decay', 'batch_size', 'temperature', 'target', 'description']
+    keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'description']
     run_name  = '_'.join(str(getattr(parsed, x)) for x in keys)
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
@@ -179,18 +179,25 @@ if __name__ == '__main__':
             'run_name': run_name,
             'max_epoch': parsed.max_epoch,
             'checkpoint_dir': checkpoint_dir,
+
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+
             'model_args': {
-                'input_channel': C,
+                'target': 'rgb',
                 'resnet_model': parsed.resnet_model,
-                'temperature': parsed.temperature
+                'hidden_size': parsed.hidden_size,
+                'history_size': 1,
+                'goal_size': 3
                 },
+
             'data_args': {
                 'num_workers': 8,
-                'target_type': parsed.target,
                 'dataset_dir': parsed.dataset_dir,
-                'batch_size': parsed.batch_size
+                'batch_size': parsed.batch_size,
+                'height': 160,
+                'width': 384
                 },
+
             'optimizer_args': {
                 'lr': parsed.lr,
                 'weight_decay': parsed.weight_decay

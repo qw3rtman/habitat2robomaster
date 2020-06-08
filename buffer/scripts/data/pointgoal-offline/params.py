@@ -6,12 +6,12 @@ jobs = list()
 unique = datetime.now().strftime("%-m.%d")
 
 job = f"""python buffer/generate_offline_samples.py \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_2 \\
     --mode greedy \\
     --dataset replica \\
     --split train \\
-    --scene apartment_0 \\
-    --num_episodes 10000 \\
+    --scene apartment_2 \\
+    --num_episodes 300 \\
     --target semantic \\
     --height 160 \\
     --width 384 \\

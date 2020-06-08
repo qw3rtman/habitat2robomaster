@@ -1,5 +1,6 @@
 import torch
 from pathlib import Path
+from itertools import repeat
 import numpy as np
 import json
 import math
@@ -74,3 +75,24 @@ def fit_arc(actions, compass, onehot, i):
                 return u, v
 
     return None
+
+def repeater(loader):
+    for loader in repeat(loader):
+        for data in loader:
+            yield data
+
+class Wrap(object):
+    def __init__(self, data, batch_size, samples, num_workers):
+        datasets = torch.utils.data.ConcatDataset(data)
+        self.dataloader = torch.utils.data.DataLoader(datasets, shuffle=True,
+                batch_size=batch_size, num_workers=num_workers, drop_last=True,
+                pin_memory=True)
+        self.data = repeater(self.dataloader)
+        self.samples = samples
+
+    def __iter__(self):
+        for _ in range(self.samples):
+            yield next(self.data)
+
+    def __len__(self):
+        return self.samples

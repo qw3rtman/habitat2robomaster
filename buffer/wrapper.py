@@ -150,10 +150,11 @@ class Rollout:
         goal_position = self.env.current_episode.goals[0].position
         return HabitatDataset.get_direction(source_position, source_rotation, goal_position)
     
-    def get_target(self):
+    def get_target(self, target=None):
+        _target = target or self.target
         # H x W x C
-        target = self.observations[self.target]
-        if self.target == 'semantic':
+        target = self.observations[_target]
+        if _target == 'semantic':
             target = target[..., np.newaxis]
         return target
 
@@ -281,10 +282,12 @@ def replay_episode(env, replay_buffer, score_by=None):
     return itemgetter('success', 'spl', 'softspl')(env.env.get_metrics())
 
 
-def save_episode(env, episode_dir):
-    stats, targets = [], []
+def save_episode(env, episode_dir, save=[]):
+    stats, targets = [], {target: [] for target in set([env.target] + save)}
     for i, step in enumerate(env.rollout()):
-        targets.append(env.get_target())
+        for target in targets.keys():
+            targets[target].append(env.get_target(target=target))
+
         stats.append({
             'action': step['action'][env.mode]['action'],
             'compass_r': step['compass_r'],
@@ -302,5 +305,6 @@ def save_episode(env, episode_dir):
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 
     compressor = Blosc(cname='zstd', clevel=3)
-    z = zarr.open(str(episode_dir / env.target), mode='w', shape=(len(targets), *targets[0].shape), chunks=False, dtype='f4', compressor=compressor)
-    z[:] = np.array(targets)
+    for t, target in targets.items():
+        z = zarr.open(str(episode_dir / t), mode='w', shape=(len(target), *target[0].shape), chunks=False, dtype='f4', compressor=compressor)
+        z[:] = np.array(target)

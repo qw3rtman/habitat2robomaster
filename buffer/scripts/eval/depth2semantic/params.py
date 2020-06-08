@@ -28,7 +28,11 @@ if parsed.epoch is not None: # pick from wandb
 
         # get epoch from wandb
         run = api.runs(f'qw3rtman/pointgoal-depth2semantic-student/',
-                {'config.run_name': key})[0]
+                {'config.run_name': key})
+        if len(run) > 0:
+            run = run[0]
+        else:
+            continue
         model = list(wandb_root.glob(f'*{run.id}'))[0]/f'model_{parsed.epoch:03}.t7'
         if model.exists():
             print(model)
@@ -39,7 +43,11 @@ else: # use model_latest from checkpoints
 
         # get epoch from wandb
         run = api.runs(f'qw3rtman/pointgoal-depth2semantic-student/',
-                {'config.run_name': key})[0]
+                {'config.run_name': key})
+        if len(run) > 0:
+            run = run[0]
+        else:
+            continue
         config_f = list(wandb_root.glob(f'*{run.id}'))[0]/'config.yaml'
         shutil.copy(config_f, run_dir/'config.yaml')
 

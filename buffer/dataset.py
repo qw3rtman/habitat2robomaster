@@ -7,30 +7,9 @@ from pathlib import Path
 from itertools import repeat
 import time
 
-from .util import world_to_cam, fit_arc, make_onehot
+from .util import world_to_cam, fit_arc, make_onehot, Wrap
 
 ACTIONS = ['S', 'F', 'L', 'R']
-
-def repeater(loader):
-    for loader in repeat(loader):
-        for data in loader:
-            yield data
-
-class Wrap(object):
-    def __init__(self, data, batch_size, samples, num_workers):
-        datasets = torch.utils.data.ConcatDataset(data)
-        self.dataloader = torch.utils.data.DataLoader(datasets, shuffle=True,
-                batch_size=batch_size, num_workers=num_workers, drop_last=True,
-                pin_memory=True)
-        self.data = repeater(self.dataloader)
-        self.samples = samples
-
-    def __iter__(self):
-        for _ in range(self.samples):
-            yield next(self.data)
-
-    def __len__(self):
-        return self.samples
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
@@ -56,7 +35,7 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
         data = get_episodes(Path(dataset_dir) / split, target_type, kwargs.get('dataset_size', 1.0))
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
-        return Wrap(data, batch_size, 25000 if is_train else 250, num_workers)
+        return Wrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
     return make_dataset(True), make_dataset(False)
 
