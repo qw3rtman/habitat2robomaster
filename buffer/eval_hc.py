@@ -69,7 +69,6 @@ def _eval_scene(scene, parsed, num_episodes):
     env = Rollout('pointgoal', teacher_args['proxy'],
             student_args['target'], mode='student', shuffle=True,
             split=split, dataset=dataset, student=net,
-            rnn=student_args['method']!='feedforward',
             sensors=sensors, scenes=scene, goal=parsed.goal,
             **data_args)
 
@@ -85,8 +84,10 @@ def _eval_scene(scene, parsed, num_episodes):
         print(f'[!] Start {scene} ({total})')
         total += 1
 
+        """
         if student_args['method']!='feedforward':
             net.clean()
+        """
         images = []
 
         env.clean()
@@ -163,19 +164,14 @@ if __name__ == '__main__':
         raise SystemExit
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    teacher_args = get_model_args(parsed.model, 'teacher_args')
+    try:
+        teacher_args = get_model_args(parsed.model, 'teacher_args')
+    except:
+        teacher_args = {'proxy': 'semantic', 'target': 'rgb', 'dataset': 'replica'}
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
 
-    input_channels = 3
-    if student_args['target'] == 'depth':
-        input_channels = 1
-    elif student_args['target'] == 'semantic':
-        input_channels = C
-
-    #goal_size = student_args.get('goal_size', 3 if parsed.goal == 'polar' else 2)
-    #hidden_size = student_args.get('hidden_size', 1024)
-    net = get_model(**student_args, **data_args).to(device)# goal_size=goal_size, hidden_size=hidden_size).to(device)
+    net = get_model(**student_args, **data_args).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.batch_size=1
     net.eval()
