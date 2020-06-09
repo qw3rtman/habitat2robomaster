@@ -21,7 +21,7 @@ from wrapper import Rollout, METRICS
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import get_model
-from util import C, make_onehot
+from util import C, make_onehot, get_model_args
 
 BACKGROUND = (0,0,0,0)
 COLORS = [
@@ -136,13 +136,6 @@ def _eval_scene(scene, parsed, num_episodes):
 
     env.env.close()
     del env
-
-def get_model_args(model, key=None):
-    config = yaml.load((model.parent / 'config.yaml').read_text())
-    if not key:
-        return config
-
-    return config[key]['value']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

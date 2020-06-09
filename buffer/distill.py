@@ -18,17 +18,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
-from buffer.util import C, make_onehot
+from buffer.util import C, make_onehot, 
 from buffer.goal_prediction import GoalPredictionModel
 from buffer.target_dataset import TargetDataset, get_dataset
 from model import GoalConditioned
-
-def get_model_args(model, key=None):
-    config = yaml.load((model.parent / 'config.yaml').read_text())
-    if not key:
-        return config
-
-    return config[key]['value']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

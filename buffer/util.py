@@ -4,6 +4,14 @@ from itertools import repeat
 import numpy as np
 import json
 import math
+import yaml
+
+def get_model_args(model, key=None):
+    config = yaml.load((model.parent / 'config.yaml').read_text())
+    if not key:
+        return config
+
+    return config[key]['value']
 
 C = 1
 def make_onehot(semantic, scene=None):

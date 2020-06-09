@@ -9,41 +9,32 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw
 
-from .dataset import get_dataset
-from .goal_prediction import GoalPredictionModel
-from .util import C, make_onehot
+from .target_dataset import get_dataset
+from .util import C
+import sys
+sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
+from model import GoalConditioned
 
 import wandb
 
 ACTIONS = ['S', 'F', 'L', 'R']
-BACKGROUND = (0,47,0)
 COLORS = [
-    #(0,47,0),
-    (102,102,102),
-    (253,253,17)
+    (0, 0, 255),
+    (255, 0, 0), # goal query
 ]
 
-def _log_visuals(segmentation, loss, waypoints, _waypoints, action):
+def _log_visuals(rgb, loss, action, _action, waypoints, waypoint_idx):
     images = list()
-    for i in range(min(segmentation.shape[0], 64)):
-        canvas = np.zeros((segmentation.shape[-2], segmentation.shape[-1], 3), dtype=np.uint8)
-        canvas[...] = BACKGROUND
 
-        for c in range(min(segmentation.shape[1], len(COLORS))):
-            canvas[segmentation.cpu()[i, c, :, :] > 0] = COLORS[c]
-
-        canvas = Image.fromarray(canvas)
+    for i in range(min(rgb.shape[0], 64)):
+        canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(160, 384, 3))
         draw = ImageDraw.Draw(canvas)
-
-        for x, y in waypoints[i].detach().cpu().numpy().copy():
-            draw.ellipse((x-2, y-2, x+2, y+2), fill=(0, 0, 255))
-
-        for x, y in _waypoints[i].detach().cpu().numpy().copy():
-            draw.ellipse((x-2, y-2, x+2, y+2), fill=(255, 0, 0)) 
+        for idx, (x, y) in enumerate(waypoints[i].detach().cpu().numpy().copy()):
+            draw.ellipse((x-2, y-2, x+2, y+2), fill=COLORS[int((idx == waypoint_idx[i]).item())])
 
         loss_i = loss[i].sum()
         draw.text((5, 10), 'Loss: %.2f' % loss_i)
-        draw.text((5, 20), ' (%s) ' % ACTIONS[action[i]])
+        draw.text((5, 20), 'True: <%s>, Predicted: <%s>' % (ACTIONS[action[i]], ACTIONS[_action[i]]))
         images.append((loss_i, torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
 
     images.sort(key=lambda x: x[0], reverse=True)
@@ -68,17 +59,18 @@ def train_or_eval(net, data, optim, is_train, config):
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (target, action) in enumerate(iterator):
-        target = target.to(config['device'])
+    for i, (rgb, goal, action, waypoints, waypoint_idx) in enumerate(iterator):
+        rgb = rgb.to(config['device'])
+        goal = goal.to(config['device'])
         action = action.to(config['device'])
 
-        _action = net((target, goal)).logits
+        _action = net((rgb, goal)).logits
 
         loss = criterion(_action, action)
         loss_mean = loss.mean()
 
         correct += (action == _action.argmax(dim=1)).sum().item()
-        total += target.shape[0]
+        total += rgb.shape[0]
 
         if is_train:
             loss_mean.backward()
@@ -90,9 +82,9 @@ def train_or_eval(net, data, optim, is_train, config):
         losses.append(loss_mean.item())
 
         metrics = {'loss': loss_mean.item(),
-                   'images_per_second': target.shape[0] / (time.time() - tick)}
+                   'images_per_second': rgb.shape[0] / (time.time() - tick)}
         if i % 100 == 0:
-            metrics['images'] = _log_visuals(target, loss, waypoints, _waypoints, actions)
+            metrics['images'] = _log_visuals(rgb, loss, action, _action.argmax(dim=1), waypoints, waypoint_idx)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
@@ -116,12 +108,12 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = GoalConditioned(**config['student_args'], **config['data_args']).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'], scene='apartment_0')
+    data_train, data_val = get_dataset(**config['data_args'], scene='apartment_2')
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
 
-    project_name = 'pointgoal-{}-goal-prediction'.format(config['data_args']['target_type'])
+    project_name = 'pointgoal-semantic2rgb-final-distillation'
     wandb.init(project=project_name, config=config, name=config['run_name'],
             resume=True, id=str(hash(config['run_name'])))
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
@@ -160,7 +152,9 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_size', type=int, required=True)
 
     # Data args.
-    parser.add_argument('--dataset_dir', required=True)
+    parser.add_argument('--source_teacher', type=Path, required=True)
+    parser.add_argument('--goal_prediction', type=Path, required=True)
+    parser.add_argument('--dataset_dir', type=Path, required=True)
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Optimizer args.
@@ -182,7 +176,7 @@ if __name__ == '__main__':
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
-            'model_args': {
+            'student_args': {
                 'target': 'rgb',
                 'resnet_model': parsed.resnet_model,
                 'hidden_size': parsed.hidden_size,
@@ -192,6 +186,8 @@ if __name__ == '__main__':
 
             'data_args': {
                 'num_workers': 8,
+                'source_teacher': parsed.source_teacher,
+                'goal_prediction': parsed.goal_prediction,
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
                 'height': 160,
