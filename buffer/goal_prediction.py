@@ -20,27 +20,15 @@ class SpatialSoftmax(torch.nn.Module):
     (  0, -1) ... (  0, 0.5) ... (  0, 1)
     ...
     """
-    def __init__(self, temperature=1.0, steps=5):
+    def __init__(self, temperature=1.0):
         super().__init__()
 
-        self.spatial_softmax_base = nn.Sequential(
-            nn.BatchNorm2d(512),
-            nn.ConvTranspose2d(512, 256, 3, 2, 1, 1),
-            nn.ReLU(True),
-            nn.BatchNorm2d(256),
-            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1),
-            nn.ReLU(True),
-            nn.BatchNorm2d(128),
-            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
-            nn.ReLU(True))
-        self.extract_base = nn.Sequential(nn.BatchNorm2d(64), nn.Conv2d(64, steps, 1, 1, 0))
         self.temperature = temperature
 
-    def forward(self, conv):
+    def forward(self, logit):
         """
         Assumes logits is size (n, c, h, w)
         """
-        logit = self.extract_base(self.spatial_softmax_base(conv))
         flat = logit.view(logit.shape[:-2] + (-1,))
         weights = F.softmax(flat / self.temperature, dim=-1).view_as(logit)
 
@@ -61,22 +49,36 @@ class Network(resnet.ResnetBase):
         super().__init__(resnet_model, **resnet_kwargs)
 
         self.normalize = torch.nn.BatchNorm2d(resnet_kwargs['input_channel'])
+        self.deconv = nn.Sequential(
+            nn.BatchNorm2d(512), # 2048 for resnet50
+            nn.ConvTranspose2d(512, 256, 3, 2, 1, 1), # 2048 for resnet50
+            nn.ReLU(True),
+            nn.BatchNorm2d(256),
+            nn.ConvTranspose2d(256, 128, 3, 2, 1, 1),
+            nn.ReLU(True),
+            nn.BatchNorm2d(128),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 1),
+            nn.ReLU(True))
 
-        self.extract_stop    = SpatialSoftmax(temperature, steps)
-        self.extract_forward = SpatialSoftmax(temperature, steps)
-        self.extract_left    = SpatialSoftmax(temperature, steps)
-        self.extract_right   = SpatialSoftmax(temperature, steps)
+        self.extract = nn.ModuleList([
+            nn.Sequential(
+                nn.BatchNorm2d(64),
+                nn.Conv2d(64,steps,1,1,0),
+                SpatialSoftmax(temperature)
+            ) for i in range(4)
+        ])
 
-        self.branches = [self.extract_stop, self.extract_forward,
-                         self.extract_left, self.extract_right]
+        # TODO: query all branches at once in final distill
+        #       just return all four actions at one waypoint_idx in TargetDataset
 
     def forward(self, x, action):
         x = self.normalize(x)
         x = self.conv(x)
+        x = self.deconv(x)
 
         out = []
         branches = torch.unique(action.long())
         for b in branches:
-            out.append(self.branches[b.item()](x[action==b.item()]))
+            out.append(self.extract[b.item()](x[action==b.item()]))
 
         return torch.cat(out)
