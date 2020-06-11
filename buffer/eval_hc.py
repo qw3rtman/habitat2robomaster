@@ -170,6 +170,8 @@ if __name__ == '__main__':
         teacher_args = {'proxy': 'semantic', 'target': 'rgb', 'dataset': 'replica'}
     student_args = get_model_args(parsed.model, 'student_args')
     data_args = get_model_args(parsed.model, 'data_args')
+    data_args['fov'] = 120
+    data_args['camera_height'] = 0.25
 
     net = get_model(**student_args, **data_args).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))

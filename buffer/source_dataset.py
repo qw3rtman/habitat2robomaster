@@ -12,7 +12,7 @@ from .util import world_to_cam, fit_arc, make_onehot, Wrap
 ACTIONS = ['S', 'F', 'L', 'R']
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
+def get_dataset(dataset_dir, target_type, scene, zoom, steps, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
     def get_episodes(split_dir, target_type, dataset_size):
@@ -21,7 +21,7 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            data.append(HabitatDataset(episode_dir, target_type, scene))
+            data.append(SourceDataset(episode_dir, target_type, scene, zoom, steps))
 
             if i % 100 == 0:
                 print(f'[{i:05}/{num_episodes}]')
@@ -40,11 +40,13 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
     return make_dataset(True), make_dataset(False)
 
 
-class HabitatDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_dir, target_type, scene):
+class SourceDataset(torch.utils.data.Dataset):
+    def __init__(self, episode_dir, target_type, scene, zoom=3, steps=8):
         self.episode_dir = episode_dir
         self.target_type = target_type
         self.scene = scene
+        self.zoom = zoom
+        self.steps = steps
 
         with open(episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
@@ -55,41 +57,30 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.positions = torch.as_tensor(x[:, 3:6])
         self.rotations = torch.as_tensor(x[:, 6:])
 
-        left  = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 2, torch.zeros(1, dtype=torch.bool)])
-        right = torch.cat([torch.zeros(1, dtype=torch.bool), self.actions[:-1] == 3, torch.zeros(1, dtype=torch.bool)])
-
-        target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
-        self.waypoints = torch.zeros(len(self.actions), 5, 2)
-        self.valid = torch.zeros_like(self.actions, dtype=torch.bool)
-        onehot = make_onehot(np.uint8(target_f[:]), scene=self.scene)
-        for i in range(len(self.actions)-1):
-            arc = fit_arc(self.actions, self.compass, onehot, i)
-            if arc is None:
-                continue
-            self.valid[i] = True
-            self.waypoints[i] = torch.stack(arc, dim=-1)
-
-        self.num_valid = self.valid.sum()
         self.target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
 
+        self.xy = np.stack([self.positions[:, 0], -self.positions[:, 2]], axis=-1)
+        self.waypoints = torch.zeros(self.actions.shape[0], 8, 2)
+        for i in range(self.actions.shape[0] - 1):
+            self.waypoints[i] = torch.as_tensor(np.stack(fit_arc(self.xy[i:],
+                self.rotations[i], zoom=zoom, steps=steps))).T
+            # TODO: when we first get inside the zoom, then it's not far enough
+
     def __len__(self):
-        return self.num_valid
+        return self.actions.shape[0]
 
     def __getitem__(self, idx):
-        idx = torch.arange(self.target_f.shape[0])[self.valid][idx].item()
-
         target = self.target_f[idx]
         if self.target_type == 'semantic':
-            target = make_onehot(np.uint8(target), scene='apartment_0')
+            target = make_onehot(np.uint8(target), scene=self.scene)
 
         action = self.actions[idx]
 
         r, t = self.compass[idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        waypoints = self.waypoints[idx].clone().detach()
-        waypoints[:,0] = (2*waypoints[:,0]/384) - 1
-        waypoints[:,1] = (2*waypoints[:,1]/160) - 1
+        waypoints = self.waypoints[idx].clone().detach() # [-zoom, zoom] x [-zoom, zoom]
+        waypoints /= zoom                                # [-1, 1]       x [-1, 1]
 
         return target, action, goal, waypoints
 
@@ -102,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', type=Path, required=True)
     parsed = parser.parse_args()
 
-    d = HabitatDataset(parsed.dataset_dir, 'semantic', 'apartment_0')
+    d = HabitatDataset(parsed.dataset_dir, 'semantic', 'apartment_0', zoom=3, steps=8)
     i = 0
     while i < len(d):
         target, action, goal, waypoints = d[i]

@@ -76,9 +76,8 @@ class Network(resnet.ResnetBase):
         x = self.conv(x)
         x = self.deconv(x)
 
-        out = []
-        branches = torch.unique(action.long())
-        for b in branches:
-            out.append(self.extract[b.item()](x[action==b.item()]))
+        out = torch.empty((action.shape[0], 5, 2)).cuda()
+        for b in action.long().unique():
+            out[action==b] = self.extract[b](x[action==b])
 
-        return torch.cat(out)
+        return out

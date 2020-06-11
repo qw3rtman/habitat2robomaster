@@ -10,8 +10,7 @@ SUBMIT = """Executable = run_{uuid}.sh
 +ProjectDescription="Training model"
 +GPUJob=true
 
-request_memory = 24 GB
-Requirements=(TARGET.GPUSlot && Eldar == True)
+Requirements=(TARGET.GPUSlot)
 Rank=memory
 Universe=vanilla
 Getenv=True
@@ -33,8 +32,6 @@ cd $HOME/Documents/robomaster/habitat2robomaster
 
 conda env list
 conda activate /scratch/cluster/nimit/miniconda3/envs/robo
-
-wandb on
 """
 
 from params import JOBS

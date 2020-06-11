@@ -191,7 +191,9 @@ if __name__ == '__main__':
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
                 'height': 160,
-                'width': 384
+                'width': 384,
+                'fov': 120,
+                'camera_height': 0.25
                 },
 
             'optimizer_args': {

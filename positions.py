@@ -26,11 +26,11 @@ A = torch.tensor([[ f, 0., 192.],
                   [0.,  f,   0.],
                   [0., 0.,   1.]])
 
-zoom = 10
-def get_arc(xy, i):
-    path = xy[i:] - xy[i]
-    path = np.stack(rotate_origin_only(*path.T, Quaternion(*d.rotations[i, 1:4],
-        d.rotations[i, 0]).yaw_pitch_roll[1]), axis=-1)
+zoom, k = 10, 8
+def get_arc(xy, rotation):
+    path = xy - xy[0]#[i:] - xy[i]
+    path = np.stack(rotate_origin_only(*path.T, Quaternion(*rotation[1:4],
+        rotation[0]).yaw_pitch_roll[1]), axis=-1)
 
     valid = np.any((path > zoom) | (path < -zoom), axis=1)
     first_invalid = np.searchsorted(np.cumsum(valid), 1)
@@ -42,7 +42,7 @@ def get_arc(xy, i):
     u = np.cumsum(dist)
     u = np.hstack([[0],u])
 
-    t = np.linspace(0,u.max(), 8)
+    t = np.linspace(0,u.max(),k)
     xn = np.interp(t, u, x)
     yn = np.interp(t, u, y)
 
@@ -61,7 +61,7 @@ xy = np.stack([x, -z], axis=-1)
 
 i = 0
 while i < semantic.shape[0]:
-    x, y = get_arc(xy, i)
+    x, y = get_arc(xy[i:], d.rotations[i])
     u, v = world_to_cam(x, y)
     v = 160-torch.clamp(v, min=0, max=159)
     u = torch.clamp(u, min=0, max=383)

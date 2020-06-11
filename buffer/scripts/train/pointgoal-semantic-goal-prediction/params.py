@@ -10,14 +10,15 @@ for batch_size in [64, 128]:
         for temperature in [0.1, 1.0, 10.0]:
             for lr in [1e-4, 1e-3]:
                 for weight_decay in [5e-5]:
-                    job = f"""python -m buffer.train_goal_prediction \\
-    --description {unique}-v4 \\
+                    job = f"""wandb on; python -m buffer.train_goal_prediction \\
+    --description {unique}-v7 \\
     --max_epoch 100 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\
     --resnet_model {resnet_model} \\
     --temperature {temperature} \\
     --target semantic \\
+    --scene apartment_0 \\
     --batch_size {batch_size} \\
     --lr {lr} \\
     --weight_decay {weight_decay}

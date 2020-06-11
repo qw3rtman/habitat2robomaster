@@ -1,6 +1,7 @@
 import torch
 from pathlib import Path
 from itertools import repeat
+from pyquaternion import Quaternion
 import numpy as np
 import json
 import math
@@ -59,33 +60,26 @@ def rotate_origin_only(x, y, radians):
 
     return xx, yy
 
-def fit_arc(actions, compass, onehot, i):
-    movement = actions[i:] == 1
+def fit_arc(xy, rotation, zoom=3, steps=8):
+    path = xy - xy[0]
+    path = np.stack(rotate_origin_only(*path.T, Quaternion(*rotation[1:4],
+        rotation[0]).yaw_pitch_roll[1]), axis=-1)
 
-    for j in range(10, 1, -1):
-        k = np.searchsorted(np.cumsum(movement), j).item()
-        #l = np.where(~movement[k:] == 1)[0]
-        #if len(l) > 0:
-            #k = min(actions[i:].shape[0], k+l[0])
+    valid = np.any((path > zoom) | (path < -zoom), axis=1)
+    first_invalid = np.searchsorted(np.cumsum(valid), 1)
 
-        r, t = compass.T
-        t = np.arccos(np.cos(-t))
-        R = r[i:i+k][movement[:k]]-r[i]   # relative
-        T = t[i:i+k][movement[:k]]-t[i] # absolute
-        x, y = rotate_origin_only(R*np.cos(T), R*np.sin(T), np.pi/2)
-        if T.shape[0] > 1 and (y < 0).sum() == 0: # if behind camera, then use prev
-            _t = np.linspace(T[0], T[-1], 5)
-            _r = np.linspace(R[0], R[-1], 5)
-            _x, _y = rotate_origin_only(_r*np.cos(_t), _r*np.sin(_t), np.pi/2)
-            u, v = world_to_cam(_x, _y)
-            v = 159-torch.clamp(v, min=0, max=159)
-            u = torch.clamp(u, min=0, max=383)
+    x,y = path[:first_invalid].T
+    xd = np.diff(x)
+    yd = np.diff(y)
+    dist = np.sqrt(xd**2+yd**2)
+    u = np.cumsum(dist)
+    u = np.hstack([[0],u])
 
-            # walkable should be below the horizon (no stairs)
-            if int(v[-1]) >= (159/2) and onehot[i,int(v[-1]),int(u[-1]),0]:
-                return u, v
+    t = np.linspace(0,u.max(),steps)
+    xn = np.interp(t, u, x)
+    yn = np.interp(t, u, y)
 
-    return None
+    return xn, yn
 
 def repeater(loader):
     for loader in repeat(loader):
@@ -93,11 +87,17 @@ def repeater(loader):
             yield data
 
 class Wrap(object):
-    def __init__(self, data, batch_size, samples, num_workers):
+    def __init__(self, data, batch_size, samples, num_workers, loss_sampler=False):
         datasets = torch.utils.data.ConcatDataset(data)
-        self.dataloader = torch.utils.data.DataLoader(datasets, shuffle=True,
-                batch_size=batch_size, num_workers=num_workers, drop_last=True,
-                pin_memory=True)
+
+        if loss_sampler:
+            sampler = LossSampler(datasets, batch_size)
+            self.dataloader = torch.utils.data.DataLoader(datasets,
+                batch_sampler=sampler, num_workers=num_workers, pin_memory=True)
+        else:
+            self.dataloader = torch.utils.data.DataLoader(datasets, shuffle=True,
+                    batch_size=batch_size, num_workers=num_workers, drop_last=True,
+                    pin_memory=True)
         self.data = repeater(self.dataloader)
         self.samples = samples
 

@@ -9,7 +9,7 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw
 
-from .dataset import get_dataset
+from .source_dataset import get_dataset
 from .goal_prediction import GoalPredictionModel
 from .util import C, make_onehot
 
@@ -71,8 +71,7 @@ def train_or_eval(net, data, optim, is_train, config):
         target = target.reshape(config['data_args']['batch_size'], C, 160, 384)
 
         waypoints = waypoints.to(config['device'])
-        waypoints[..., 0] = (waypoints[..., 0] + 1) * 384 / 2
-        waypoints[..., 1] = (waypoints[..., 1] + 1) * 160 / 2
+        waypoints = (waypoints + 1) * config['data_args']['zoom'] / 2
 
         _waypoints = net(target, actions) # [-1, 1]
         _waypoints[..., 0] = (_waypoints[..., 0] + 1) * 384 / 2
@@ -115,7 +114,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = GoalPredictionModel(**config['model_args']).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'], scene='apartment_0')
+    data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
@@ -162,6 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_dir', required=True)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--target', required=True, choices=['semantic', 'depth'])
+    parser.add_argument('--scene', required=True)
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -183,13 +183,17 @@ if __name__ == '__main__':
             'model_args': {
                 'input_channel': C,
                 'resnet_model': parsed.resnet_model,
-                'temperature': parsed.temperature
+                'temperature': parsed.temperature,
+                'steps': 8
                 },
             'data_args': {
                 'num_workers': 8,
                 'target_type': parsed.target,
                 'dataset_dir': parsed.dataset_dir,
-                'batch_size': parsed.batch_size
+                'batch_size': parsed.batch_size,
+                'scene': parsed.scene,
+                'zoom': 3,
+                'steps': 8
                 },
             'optimizer_args': {
                 'lr': parsed.lr,
