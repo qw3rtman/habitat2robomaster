@@ -39,6 +39,7 @@ def get_arc(actions, i, j):
     T = t[i:i+k][movement[:k]]-t[i+1] # absolute
     x, y = rotate_origin_only(R*np.cos(T), R*np.sin(T), np.pi/2)
     if T.shape[0] > 1 and (y < 0).sum() == 0: # if not behind camera
+        print(T[-1])
         _t = np.linspace(T[0], T[-1], 5)
         _r = np.linspace(R[0], R[-1], 5)
         _x, _y = rotate_origin_only(_r*np.cos(_t), _r*np.sin(_t), np.pi/2)
@@ -66,7 +67,6 @@ while i < replay_buffer.size:
         u, v = world_to_cam(x, y)
         v = 160-torch.clamp(v, min=0, max=159)
         u = torch.clamp(u, min=0, max=383)
-        print(i,j,  v,u)
 
         if semantic[int(v[-1])][int(u[-1])]:
             break
