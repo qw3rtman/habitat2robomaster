@@ -11,7 +11,7 @@ from .util import world_to_cam, fit_arc, make_onehot, Wrap
 
 ACTIONS = ['S', 'F', 'L', 'R']
 
-#memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
+memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache

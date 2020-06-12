@@ -23,7 +23,7 @@ COLORS = [
     (253,253,17)
 ]
 
-def _log_visuals(segmentation, loss, waypoints, _waypoints, action):
+def _log_visuals(config, segmentation, loss, waypoints, _waypoints, action):
     images = list()
     for i in range(min(segmentation.shape[0], 64)):
         canvas = np.zeros((segmentation.shape[-2], segmentation.shape[-1], 3), dtype=np.uint8)
@@ -35,11 +35,13 @@ def _log_visuals(segmentation, loss, waypoints, _waypoints, action):
         canvas = Image.fromarray(canvas)
         draw = ImageDraw.Draw(canvas)
 
-        for x, y in waypoints[i].detach().cpu().numpy().copy():
-            draw.ellipse((x-2, y-2, x+2, y+2), fill=(0, 0, 255))
+        for x, y in config['data_args']['zoom'] * waypoints[i].detach().cpu().numpy().copy():
+            _x, _y = int(10*x)+192, 80-int(10*y)
+            draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(0, 0, 255))
 
-        for x, y in _waypoints[i].detach().cpu().numpy().copy():
-            draw.ellipse((x-2, y-2, x+2, y+2), fill=(255, 0, 0)) 
+        for x, y in config['data_args']['zoom'] * _waypoints[i].detach().cpu().numpy().copy():
+            _x, _y = int(10*x)+192, 80-int(10*y)
+            draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(255, 0, 0)) 
 
         loss_i = loss[i].sum()
         draw.text((5, 10), 'Loss: %.2f' % loss_i)
@@ -91,7 +93,7 @@ def train_or_eval(net, data, optim, is_train, config):
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': target.shape[0] / (time.time() - tick)}
         if i % 100 == 0:
-            metrics['images'] = _log_visuals(target, loss, waypoints, _waypoints, actions)
+            metrics['images'] = _log_visuals(config, target, loss, waypoints, _waypoints, actions)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
@@ -162,6 +164,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--target', required=True, choices=['semantic', 'depth'])
     parser.add_argument('--scene', required=True)
+    parser.add_argument('--zoom', type=float, required=True)
+    parser.add_argument('--steps', type=int, required=True)
 
     # Optimizer args.
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -184,7 +188,7 @@ if __name__ == '__main__':
                 'input_channel': C,
                 'resnet_model': parsed.resnet_model,
                 'temperature': parsed.temperature,
-                'steps': 8
+                'steps': parsed.steps
                 },
             'data_args': {
                 'num_workers': 8,
@@ -192,8 +196,8 @@ if __name__ == '__main__':
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
                 'scene': parsed.scene,
-                'zoom': 3,
-                'steps': 8
+                'zoom': parsed.zoom,
+                'steps': parsed.steps
                 },
             'optimizer_args': {
                 'lr': parsed.lr,
