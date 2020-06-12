@@ -74,8 +74,9 @@ class TargetDataset(torch.utils.data.Dataset):
         source_teacher.eval()
         goal_prediction.eval()
 
-        onehot = make_onehot(np.uint8(zarr.open(str(self.episode_dir / 'semantic'), mode='r')[:]), scene=scene)
-        onehot = torch.as_tensor(onehot.reshape(-1, C, 160, 384), dtype=torch.float).cuda()
+        onehot = torch.as_tensor(make_onehot(np.uint8(zarr.open(
+            str(self.episode_dir / 'semantic'), mode='r')[:]).reshape(-1, 160, 384),
+            scene=scene).reshape(-1, C, 160, 384), dtype=torch.float).cuda()
         self.waypoints = torch.empty(self.rgb_f.shape[0], 4, steps, 2)
         with torch.no_grad():
             for a in range(4):

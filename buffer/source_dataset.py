@@ -11,8 +11,8 @@ from .util import world_to_cam, fit_arc, make_onehot, Wrap
 
 ACTIONS = ['S', 'F', 'L', 'R']
 
-memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, target_type, scene, zoom, steps, batch_size=128, num_workers=0, **kwargs):
+#memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
+def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
     def get_episodes(split_dir, target_type, scene, zoom, steps):
@@ -82,7 +82,7 @@ class SourceDataset(torch.utils.data.Dataset):
 
         target = self.target_f[idx]
         if self.target_type == 'semantic':
-            target = make_onehot(np.uint8(target.unsqueeze(dim=0)), scene=self.scene)
+            target = make_onehot(np.uint8(target), scene=self.scene)
 
         action = self.actions[idx]
 
