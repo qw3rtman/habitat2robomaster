@@ -20,7 +20,7 @@ def make_onehot(semantic, scene=None):
         input:  torch (B,H,W,1), dtype: torch/np.uint8
         output: torch (B,H,W,C), dtype: torch.float
     """
-    onehot = torch.zeros((*semantic.shape, C), dtype=torch.float)
+    onehot = torch.zeros((*semantic.shape[:-1], C), dtype=torch.float)
     if scene is not None: # replica mapping
         mapping_f = Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets/replica/{scene}/habitat/info_semantic.json')
         if not mapping_f.exists():
@@ -38,7 +38,7 @@ def make_onehot(semantic, scene=None):
         onehot[..., 0] = torch.as_tensor(semantic==2, dtype=torch.float)
         #onehot[..., 1] = torch.as_tensor((semantic!=2)&(semantic!=17)&(semantic!=28), dtype=torch.float)
 
-    onehot[:80,...,0] = 0 # floor is never above the horizon
+    onehot[:,80:,:,0] = 0 # floor is never above the horizon
     return onehot
 
 
@@ -82,6 +82,10 @@ def fit_arc(xy, rotation, zoom=3, steps=8):
     yn = np.interp(t, u, y)
 
     return xn, yn
+
+def z2polar(x, y):
+    z = x + 1j * y
+    return np.abs(z), np.angle(z)
 
 def repeater(loader):
     for loader in repeat(loader):

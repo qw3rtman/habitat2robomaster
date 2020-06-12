@@ -82,14 +82,14 @@ class SourceDataset(torch.utils.data.Dataset):
 
         target = self.target_f[idx]
         if self.target_type == 'semantic':
-            target = make_onehot(np.uint8(target), scene=self.scene)
+            target = make_onehot(np.uint8(target.unsqueeze(dim=0)), scene=self.scene)
 
         action = self.actions[idx]
 
         r, t = self.compass[idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        waypoints = self.waypoints[idx].clone().detach() / self.zoom # [-1, 1]       x [-1, 1]
+        waypoints = self.waypoints[idx].clone().detach() / self.zoom # [-1, 1] x [-1, 1]
 
         return target, action, goal, waypoints
 

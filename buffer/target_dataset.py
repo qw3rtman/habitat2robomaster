@@ -7,7 +7,7 @@ from pathlib import Path
 from itertools import repeat
 import time
 
-from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only, get_model_args
+from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only, get_model_args, z2polar
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import GoalConditioned
@@ -32,13 +32,15 @@ def get_dataset(source_teacher, goal_prediction, dataset_dir, scene, batch_size=
 
         # set up goal prediction
         model_args = get_model_args(goal_prediction_path, 'model_args')
+        data_args = get_model_args(goal_prediction_path, 'data_args')
         goal_prediction = GoalPredictionModel(**model_args).to(device)
         goal_prediction.load_state_dict(torch.load(goal_prediction_path, map_location=device))
         goal_prediction.eval()
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            data.append(TargetDataset(source_teacher, goal_prediction, episode_dir, scene))
+            data.append(TargetDataset(source_teacher, goal_prediction, episode_dir,
+                scene, data_args['zoom'], data_args['steps']))
 
             if i % 100 == 0:
                 print(f'[{i:05}/{num_episodes}]')
@@ -61,9 +63,11 @@ def get_dataset(source_teacher, goal_prediction, dataset_dir, scene, batch_size=
     return make_dataset(True), make_dataset(False)
 
 class TargetDataset(torch.utils.data.Dataset):
-    def __init__(self, source_teacher, goal_prediction, episode_dir, scene):
+    def __init__(self, source_teacher, goal_prediction, episode_dir, scene, zoom, steps):
         self.episode_dir = episode_dir
         self.scene = scene
+        self.zoom = zoom
+        self.steps = steps
 
         self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
 
@@ -72,41 +76,39 @@ class TargetDataset(torch.utils.data.Dataset):
 
         onehot = make_onehot(np.uint8(zarr.open(str(self.episode_dir / 'semantic'), mode='r')[:]), scene=scene)
         onehot = torch.as_tensor(onehot.reshape(-1, C, 160, 384), dtype=torch.float).cuda()
-        self.waypoints = torch.empty(self.rgb_f.shape[0], 4, 5, 2)
+        self.waypoints = torch.empty(self.rgb_f.shape[0], 4, steps, 2)
         with torch.no_grad():
             for a in range(4):
-                self.waypoints[:, a] = goal_prediction(onehot,
+                self.waypoints[:, a] = self.zoom * goal_prediction(onehot,
                         a*torch.ones(self.rgb_f.shape[0]).cuda()).cpu()
+                print(onehot[5].sum(), episode_dir, self.waypoints[5, a])
+                print()
+                print()
+                print()
+                print()
 
-        self.waypoints[..., 0] = (self.waypoints[..., 0] + 1) * 384 / 2
-        self.waypoints[..., 1] = (self.waypoints[..., 1] + 1) * 160 / 2
+        r, t = z2polar(*self.waypoints.numpy().reshape(2, -1, 4, steps))
+        r, t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
+        #print(episode_dir, r[0,0])
 
-        rcost, rsint = rotate_origin_only(*cam_to_world(
-            self.waypoints[..., 0].flatten(),
-            159-self.waypoints[..., 1].flatten()
-        ), -np.pi/2)
-        r = np.sqrt(np.square(rcost) + np.square(rsint)).reshape(-1, 4, 5)# negative?
-        t = np.arctan(rsint/rcost).reshape(-1, 4, 5)#[..., -1]
-        t[np.isnan(t)] = 0. # looking forward
-
-        self.goal = torch.stack([r, np.cos(-t), np.sin(-t)], dim=-1)
+        self.goal = torch.stack([r, torch.cos(-t), torch.sin(-t)], dim=-1)
         goal = self.goal.cuda()
         self.actions = torch.empty(self.goal.shape[:3], dtype=torch.long)
         onehot = onehot.reshape(-1, 160, 384, C)
         with torch.no_grad():
             for a in range(4):
-                for t in range(5):
+                for t in range(steps):
                     self.actions[:,a,t] = source_teacher((onehot, goal[:,a,t])).sample().squeeze().cpu()
                     #print(self.actions[:,a,t], self.goal[:,a,t,0])
 
     def __len__(self):
-        return self.rgb_f.shape[0] * 4 * 5
+        return self.rgb_f.shape[0] * 4 * self.steps
 
     def __getitem__(self, idx):
         rgb = self.rgb_f[idx//20]
-        goal = self.goal[idx//20][idx%4][idx%5]
-        action = self.actions[idx//20][idx%4][idx%5]
+        goal = self.goal[idx//20][idx%4][idx%self.steps]
+        action = self.actions[idx//20][idx%4][idx%self.steps]
         waypoints = self.waypoints[idx//20][idx%4]
-        waypoint_idx = idx % 5
+        waypoint_idx = idx % self.steps
 
         return rgb, goal, action, waypoints, waypoint_idx

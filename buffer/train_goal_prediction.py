@@ -36,11 +36,11 @@ def _log_visuals(config, segmentation, loss, waypoints, _waypoints, action):
         draw = ImageDraw.Draw(canvas)
 
         for x, y in waypoints[i].detach().cpu().numpy().copy():
-            _x, _y = int(10*x)+192, 80-int(10*y)
+            _x, _y = 192+int(10*x), 80-int(10*y)
             draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(0, 0, 255))
 
         for x, y in _waypoints[i].detach().cpu().numpy().copy():
-            _x, _y = int(10*x)+192, 80-int(10*y)
+            _x, _y = 192+int(10*x), 80-int(10*y)
             draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(255, 0, 0)) 
 
         loss_i = loss[i].sum()

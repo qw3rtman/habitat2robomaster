@@ -14,7 +14,7 @@ for batch_size in [64, 128]:
 --max_epoch 100 \\
 --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
 --source_teacher /scratch/cluster/nimit/models/apartment_0-semantic-teacher/model_latest.t7 \\
---goal_prediction /scratch/cluster/nimit/wandb/run-20200610_021948-6182439355364166434/model_010.t7 \\
+--goal_prediction /scratch/cluster/nimit/wandb/run-20200612_023226--1996829503092148540/model_010.t7 \\
 --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_2-k=3 \\
 --resnet_model {resnet_model} \\
 --hidden_size 256 \\

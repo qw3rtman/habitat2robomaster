@@ -11,7 +11,7 @@ for batch_size in [64, 128]:
             for lr in [1e-4, 1e-3]:
                 for weight_decay in [5e-5]:
                     job = f"""ulimit -n 16384; wandb on; python -m buffer.train_goal_prediction \\
-    --description {unique}-v7 \\
+    --description {unique}-v1 \\
     --max_epoch 100 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --dataset_dir "/scratch/cluster/nimit/data/habitat/replica-apartment_0-k=3" \\
