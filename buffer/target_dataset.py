@@ -91,10 +91,10 @@ class TargetDataset(torch.utils.data.Dataset):
                 print()
 
         r, t = z2polar(*self.waypoints.numpy().reshape(2, -1, 4, steps))
-        r, t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
+        self.r, self.t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
         #print(episode_dir, r[0,0])
 
-        self.goal = torch.stack([r, torch.cos(-t), torch.sin(-t)], dim=-1)
+        self.goal = torch.stack([self.r, torch.cos(-self.t), torch.sin(-self.t)], dim=-1)
         goal = self.goal.cuda()
         self.actions = torch.empty(self.goal.shape[:3], dtype=torch.long)
         onehot = onehot.reshape(-1, 160, 384, C)
@@ -170,6 +170,10 @@ if __name__ == '__main__':
         cv2.putText(rgb,
             f'Frame {_idx}, Action {ACTIONS[_action]}, Step {_step}          Pred {ACTIONS[action]}',
             (10, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        rgb[140:,260:] = (255, 255, 255)
+        cv2.putText(rgb, f'({d.r[_idx, _action, _step].item():.2f}, {d.t[_idx, _action, _step].item():.2f})',
+            (260, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         cv2.imshow('rgb', rgb)
 
         key = cv2.waitKey(0)
