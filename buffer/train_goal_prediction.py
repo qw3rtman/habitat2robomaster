@@ -35,11 +35,11 @@ def _log_visuals(config, segmentation, loss, waypoints, _waypoints, action):
         canvas = Image.fromarray(canvas)
         draw = ImageDraw.Draw(canvas)
 
-        for x, y in config['data_args']['zoom'] * waypoints[i].detach().cpu().numpy().copy():
+        for x, y in waypoints[i].detach().cpu().numpy().copy():
             _x, _y = int(10*x)+192, 80-int(10*y)
             draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(0, 0, 255))
 
-        for x, y in config['data_args']['zoom'] * _waypoints[i].detach().cpu().numpy().copy():
+        for x, y in _waypoints[i].detach().cpu().numpy().copy():
             _x, _y = int(10*x)+192, 80-int(10*y)
             draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=(255, 0, 0)) 
 
@@ -72,12 +72,8 @@ def train_or_eval(net, data, optim, is_train, config):
         target = target.to(config['device'])
         target = target.reshape(config['data_args']['batch_size'], C, 160, 384)
 
-        waypoints = waypoints.to(config['device'])
-        waypoints = (waypoints + 1) * config['data_args']['zoom'] / 2
-
-        _waypoints = net(target, actions) # [-1, 1]
-        _waypoints[..., 0] = (_waypoints[..., 0] + 1) * 384 / 2
-        _waypoints[..., 1] = (_waypoints[..., 1] + 1) * 160 / 2
+        waypoints = waypoints.to(config['device']) * config['data_args']['zoom']
+        _waypoints = net(target, actions) * config['data_args']['zoom']
 
         loss = torch.abs(waypoints - _waypoints)
         loss_mean = loss.sum((1, 2)).mean()

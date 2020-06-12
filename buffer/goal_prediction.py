@@ -48,6 +48,7 @@ class Network(resnet.ResnetBase):
 
         super().__init__(resnet_model, **resnet_kwargs)
 
+        self.steps = steps
         self.normalize = torch.nn.BatchNorm2d(resnet_kwargs['input_channel'])
         self.deconv = nn.Sequential(
             nn.BatchNorm2d(512), # 2048 for resnet50
@@ -76,7 +77,7 @@ class Network(resnet.ResnetBase):
         x = self.conv(x)
         x = self.deconv(x)
 
-        out = torch.empty((action.shape[0], 5, 2)).cuda()
+        out = torch.empty((action.shape[0], self.steps, 2)).cuda()
         for b in action.long().unique():
             out[action==b] = self.extract[b](x[action==b])
 

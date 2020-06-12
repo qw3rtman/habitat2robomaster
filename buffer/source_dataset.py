@@ -12,19 +12,18 @@ from .util import world_to_cam, fit_arc, make_onehot, Wrap
 ACTIONS = ['S', 'F', 'L', 'R']
 
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
+def get_dataset(dataset_dir, target_type, scene, zoom, steps, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
-    def get_episodes(split_dir, target_type, dataset_size):
+    def get_episodes(split_dir, target_type, scene, zoom, steps):
         episode_dirs = list(split_dir.iterdir())
-        num_episodes = int(max(1, dataset_size * len(episode_dirs)))
 
         data = []
-        for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
+        for i, episode_dir in enumerate(episode_dirs):
             data.append(SourceDataset(episode_dir, target_type, scene, zoom, steps))
 
             if i % 100 == 0:
-                print(f'[{i:05}/{num_episodes}]')
+                print(f'[{i:05}/{len(episode_dirs)}]')
 
         return data
 
@@ -32,7 +31,7 @@ def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, 
         split = 'train' if is_train else 'val'
 
         start = time.time()
-        data = get_episodes(Path(dataset_dir) / split, target_type, kwargs.get('dataset_size', 1.0))
+        data = get_episodes(Path(dataset_dir) / split, target_type, scene, zoom, steps)
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
         return Wrap(data, batch_size, 1000 if is_train else 100, num_workers)
@@ -57,8 +56,6 @@ class SourceDataset(torch.utils.data.Dataset):
         self.positions = torch.as_tensor(x[:, 3:6])
         self.rotations = torch.as_tensor(x[:, 6:])
 
-        self.target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
-
         self.xy = np.stack([self.positions[:, 0], -self.positions[:, 2]], axis=-1)
         self.waypoints = torch.zeros(self.actions.shape[0], 8, 2)
         for i in range(self.actions.shape[0] - 1):
@@ -74,10 +71,15 @@ class SourceDataset(torch.utils.data.Dataset):
         self.xy = self.xy[:i]
         self.waypoints = self.waypoints[:i]
 
+        self.target_f = None
+
     def __len__(self):
         return self.actions.shape[0]
 
     def __getitem__(self, idx):
+        if self.target_f is None:
+            self.target_f = zarr.open(str(self.episode_dir / self.target_type), mode='r')
+
         target = self.target_f[idx]
         if self.target_type == 'semantic':
             target = make_onehot(np.uint8(target), scene=self.scene)
