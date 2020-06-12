@@ -13,6 +13,8 @@ sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import GoalConditioned
 from .goal_prediction import GoalPredictionModel
 
+ACTIONS = ['S', 'F', 'L', 'R']
+
 memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
 def get_dataset(source_teacher, goal_prediction, dataset_dir, scene, batch_size=128, num_workers=0, **kwargs):
 
@@ -75,15 +77,15 @@ class TargetDataset(torch.utils.data.Dataset):
         goal_prediction.eval()
 
         onehot = torch.as_tensor(make_onehot(np.uint8(zarr.open(
-            str(self.episode_dir / 'semantic'), mode='r')[:]).reshape(-1, 160, 384),
+            str(self.episode_dir / 'semantic'), mode='r')[:]),
             scene=scene).reshape(-1, C, 160, 384), dtype=torch.float).cuda()
         self.waypoints = torch.empty(self.rgb_f.shape[0], 4, steps, 2)
+        print(episode_dir, onehot.sum())
         with torch.no_grad():
             for a in range(4):
-                self.waypoints[:, a] = self.zoom * goal_prediction(onehot,
+                self.waypoints[:, a] = goal_prediction(onehot,
                         a*torch.ones(self.rgb_f.shape[0]).cuda()).cpu()
-                print(onehot[5].sum(), episode_dir, self.waypoints[5, a])
-                print()
+                print(self.waypoints[5, a])
                 print()
                 print()
                 print()
@@ -113,3 +115,76 @@ class TargetDataset(torch.utils.data.Dataset):
         waypoint_idx = idx % self.steps
 
         return rgb, goal, action, waypoints, waypoint_idx
+
+    def get_sample(self, _idx, _action, _step):
+        rgb = self.rgb_f[_idx]
+        goal = self.goal[_idx][_action][_step]
+        action = self.actions[_idx][_action][_step]
+        waypoints = self.waypoints[_idx][_action]
+        waypoint_idx = _step
+
+        return rgb, goal, action, waypoints, waypoint_idx
+
+if __name__ == '__main__':
+    import argparse
+    import cv2
+    from PIL import Image
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--source_teacher', type=Path, required=True)
+    parser.add_argument('--goal_prediction', type=Path, required=True)
+    parser.add_argument('--dataset_dir', type=Path, required=True)
+    parsed = parser.parse_args()
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # set up source teacher
+    student_args = get_model_args(parsed.source_teacher, 'student_args')
+    data_args = get_model_args(parsed.source_teacher, 'data_args')
+    source_teacher = GoalConditioned(**student_args, **data_args).to(device)
+    source_teacher.load_state_dict(torch.load(parsed.source_teacher, map_location=device))
+    source_teacher.eval()
+
+    # set up goal prediction
+    model_args = get_model_args(parsed.goal_prediction, 'model_args')
+    data_args = get_model_args(parsed.goal_prediction, 'data_args')
+    goal_prediction = GoalPredictionModel(**model_args).to(device)
+    goal_prediction.load_state_dict(torch.load(parsed.goal_prediction, map_location=device))
+    goal_prediction.eval()
+
+    d = TargetDataset(source_teacher, goal_prediction, parsed.dataset_dir,
+            'apartment_2', data_args['zoom'], data_args['steps'])
+
+    cv2.namedWindow('rgb', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('rgb', 768, 320)
+
+    _idx, _action, _step = 0, 0, 0
+    while _idx < len(d):
+        rgb, goal, action, waypoints, waypoint_idx = d.get_sample(_idx, _action, _step)
+
+        rgb = np.uint8(rgb)
+        for j, (x, y) in enumerate(waypoints * d.zoom):
+            _x, _y = int(10*x)+192, 80-int(10*y)
+            cv2.circle(rgb, (_x, _y), 3, (255, 0, 0) if j == waypoint_idx else (0, 0, 255), -1)
+        rgb[:25] = (255, 255, 255)
+        cv2.putText(rgb,
+            f'Frame {_idx}, Action {ACTIONS[_action]}, Step {_step}          Pred {ACTIONS[action]}',
+            (10, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv2.imshow('rgb', rgb)
+
+        key = cv2.waitKey(0)
+        if key == 97:    # A
+            _idx = max(0, _idx-1)
+        elif key == 100: # D
+            _idx = min(d.rgb_f.shape[0]-1, _idx+1)
+        elif key == 106: # J
+            _action = max(0, _action-1)
+        elif key == 108: # L
+            _action = min(3, _action+1)
+        elif key == 115: # S
+            _step = max(0, _step-1)
+        elif key == 119: # W
+            _step = min(d.steps-1, _step+1)
+        elif key == 113: # Q
+            cv2.destroyAllWindows()
+            break

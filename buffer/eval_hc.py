@@ -29,7 +29,7 @@ COLORS = [
     (253,253,17,150)
 ]
 
-ACTIONS = {0: 'S', 1: 'F', 2: 'L', 3: 'R'}
+ACTIONS = ['S', 'F', 'L', 'R']
 
 def get_fig(xy):
     fig = go.Figure(data=[go.Box(y=y,
