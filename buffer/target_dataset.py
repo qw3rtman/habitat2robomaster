@@ -80,21 +80,22 @@ class TargetDataset(torch.utils.data.Dataset):
             str(self.episode_dir / 'semantic'), mode='r')[:]),
             scene=scene).reshape(-1, C, 160, 384), dtype=torch.float).cuda()
         self.waypoints = torch.empty(self.rgb_f.shape[0], 4, steps, 2)
-        print(episode_dir, onehot.sum())
+        #print(episode_dir, onehot.sum())
         with torch.no_grad():
             for a in range(4):
                 self.waypoints[:, a] = goal_prediction(onehot,
                         a*torch.ones(self.rgb_f.shape[0]).cuda()).cpu()
-                print(self.waypoints[5, a])
-                print()
-                print()
-                print()
+                #print(self.waypoints[5, a])
+                #print()
+                #print()
+                #print()
 
-        r, t = z2polar(*self.waypoints.numpy().reshape(2, -1, 4, steps))
-        self.r, self.t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
+        self.r, self.t = z2polar(*(self.zoom*self.waypoints.numpy().reshape(2, -1, 4, steps)))
+        #self.r, self.t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
+        #self.r, self.t = torch.as_tensor(r).flip(dims=(2,)), torch.as_tensor((t[-1]-t)-(np.pi/2))
         #print(episode_dir, r[0,0])
 
-        self.goal = torch.stack([self.r, torch.cos(-self.t), torch.sin(-self.t)], dim=-1)
+        self.goal = torch.as_tensor(np.stack([self.r, np.cos(-self.t), np.sin(-self.t)], axis=-1))
         goal = self.goal.cuda()
         self.actions = torch.empty(self.goal.shape[:3], dtype=torch.long)
         onehot = onehot.reshape(-1, 160, 384, C)
@@ -103,6 +104,8 @@ class TargetDataset(torch.utils.data.Dataset):
                 for t in range(steps):
                     self.actions[:,a,t] = source_teacher((onehot, goal[:,a,t])).sample().squeeze().cpu()
                     #print(self.actions[:,a,t], self.goal[:,a,t,0])
+
+        self.onehot = onehot.cpu() # TODO: remove after debugging
 
     def __len__(self):
         return self.rgb_f.shape[0] * 4 * self.steps
@@ -157,6 +160,8 @@ if __name__ == '__main__':
 
     cv2.namedWindow('rgb', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('rgb', 768, 320)
+    cv2.namedWindow('semantic', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('semantic', 768, 320)
 
     _idx, _action, _step = 0, 0, 0
     while _idx < len(d):
@@ -175,6 +180,7 @@ if __name__ == '__main__':
         cv2.putText(rgb, f'({d.r[_idx, _action, _step].item():.2f}, {d.t[_idx, _action, _step].item():.2f})',
             (260, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         cv2.imshow('rgb', rgb)
+        cv2.imshow('semantic', 255*np.uint8(d.onehot[_idx].reshape(160, -1)))
 
         key = cv2.waitKey(0)
         if key == 97:    # A
