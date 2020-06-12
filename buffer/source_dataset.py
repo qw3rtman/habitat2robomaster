@@ -11,8 +11,8 @@ from .util import world_to_cam, fit_arc, make_onehot, Wrap
 
 ACTIONS = ['S', 'F', 'L', 'R']
 
-memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, target_type, scene, zoom, steps, batch_size=128, num_workers=0, **kwargs):
+#memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
+def get_dataset(dataset_dir, target_type, scene, batch_size=128, num_workers=0, **kwargs):
 
     @memory.cache
     def get_episodes(split_dir, target_type, dataset_size):
@@ -63,8 +63,16 @@ class SourceDataset(torch.utils.data.Dataset):
         self.waypoints = torch.zeros(self.actions.shape[0], 8, 2)
         for i in range(self.actions.shape[0] - 1):
             self.waypoints[i] = torch.as_tensor(np.stack(fit_arc(self.xy[i:],
-                self.rotations[i], zoom=zoom, steps=steps))).T
-            # TODO: when we first get inside the zoom, then it's not far enough
+                self.rotations[i], zoom=self.zoom, steps=self.steps))).T
+            if self.waypoints[i].abs().max() < 0.9 * self.zoom:
+                break
+
+        self.actions = self.actions[:i]
+        self.compass = self.compass[:i]
+        self.positions = self.positions[:i]
+        self.rotation = self.rotations[:i]
+        self.xy = self.xy[:i]
+        self.waypoints = self.waypoints[:i]
 
     def __len__(self):
         return self.actions.shape[0]
@@ -79,8 +87,7 @@ class SourceDataset(torch.utils.data.Dataset):
         r, t = self.compass[idx]
         goal = torch.FloatTensor([r, np.cos(-t), np.sin(-t)])
 
-        waypoints = self.waypoints[idx].clone().detach() # [-zoom, zoom] x [-zoom, zoom]
-        waypoints /= zoom                                # [-1, 1]       x [-1, 1]
+        waypoints = self.waypoints[idx].clone().detach() / self.zoom # [-1, 1]       x [-1, 1]
 
         return target, action, goal, waypoints
 
@@ -91,17 +98,22 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--zoom', type=int, default=3)
     parsed = parser.parse_args()
 
-    d = HabitatDataset(parsed.dataset_dir, 'semantic', 'apartment_0', zoom=3, steps=8)
+    d = SourceDataset(parsed.dataset_dir, 'semantic', 'apartment_0', zoom=parsed.zoom, steps=8)
+
     i = 0
     while i < len(d):
         target, action, goal, waypoints = d[i]
-        semantic = cv2.cvtColor(255*np.uint8(target).reshape(160,384), cv2.COLOR_GRAY2RGB)
-        for l in range(waypoints.shape[0]):
-            cv2.circle(semantic, (int(waypoints[l,0]), int(waypoints[l,1])), 2, (255, 0, 0), -1)
-        cv2.imshow('semantic', cv2.cvtColor(semantic, cv2.COLOR_BGR2RGB))
-        #print(ACTIONS[d.goal_actions[i]])
+
+        s = cv2.cvtColor((255*np.uint8(target)).reshape(160, -1), cv2.COLOR_GRAY2RGB)
+        for x, y in waypoints * parsed.zoom:
+            _x, _y = int(10*x)+192, 80-int(10*y)
+            cv2.circle(s, (_x, _y), 3, (255, 0, 0), -1)
+        cv2.imshow('semantic', s)
+
+        print(i, ACTIONS[d.actions[i]])
 
         key = cv2.waitKey(0)
         if key == 97:

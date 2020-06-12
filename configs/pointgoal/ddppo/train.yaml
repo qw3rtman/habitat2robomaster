@@ -41,10 +41,10 @@ DATASET:
   TYPE: PointNav-v1
   SPLIT: B6ByNegPMKs_val
   CONTENT_SCENES: ["*"]
-  DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
-  SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
-  #DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
-  #SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
+  #DATA_PATH:  '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz'
+  #SCENES_DIR: '/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets'
+  DATA_PATH:  '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/datasets/pointnav/castle/{split}/{split}.json.gz'
+  SCENES_DIR: '/Users/nimit/Documents/robomaster/habitat/habitat-api/data/scene_datasets'
 ENV_NAME: "NavRLEnv"
 
 EVAL:

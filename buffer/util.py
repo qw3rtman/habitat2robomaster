@@ -37,6 +37,8 @@ def make_onehot(semantic, scene=None):
     else: # handle in env.py#step/#reset; TODO: move that logic to here
         onehot[..., 0] = torch.as_tensor(semantic==2, dtype=torch.float)
         #onehot[..., 1] = torch.as_tensor((semantic!=2)&(semantic!=17)&(semantic!=28), dtype=torch.float)
+
+    onehot[:80,...,0] = 0 # floor is never above the horizon
     return onehot
 
 
