@@ -107,13 +107,16 @@ class TargetDataset(torch.utils.data.Dataset):
         return self.rgb_f.shape[0] * 4 * self.steps
 
     def __getitem__(self, idx):
-        rgb = self.rgb_f[idx//20]
-        goal = self.goal[idx//20][idx%4][idx%self.steps]
-        action = self.actions[idx//20][idx%4][idx%self.steps]
-        waypoints = self.waypoints[idx//20][idx%4]
+        rgb = self.rgb_f[idx//(4*self.steps)]
+        goal = self.goal[idx//(4*self.steps)][idx%4][idx%self.steps]
+        r = self.r[idx//(4*self.steps)][idx%4][idx%self.steps]
+        t = self.t[idx//(4*self.steps)][idx%4][idx%self.steps]
+        action = self.actions[idx//(4*self.steps)][idx%4][idx%self.steps]
+        query = idx % 4
+        waypoints = self.waypoints[idx//(4*self.steps)][idx%4]
         waypoint_idx = idx % self.steps
 
-        return rgb, goal, action, waypoints, waypoint_idx
+        return rgb, r, t, goal, action, query, waypoints, waypoint_idx
 
     def get_sample(self, _idx, _action, _step):
         rgb = self.rgb_f[_idx]

@@ -7,7 +7,7 @@ import tqdm
 import numpy as np
 import torch
 import torchvision
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from .target_dataset import get_dataset
 from .util import C
@@ -23,18 +23,23 @@ COLORS = [
     (255, 0, 0), # goal query
 ]
 
-def _log_visuals(rgb, loss, action, _action, waypoints, waypoint_idx):
+def _log_visuals(rgb, loss, query, r, t, action, _action, waypoints, waypoint_idx, zoom):
+    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 12)
     images = list()
 
     for i in range(min(rgb.shape[0], 64)):
         canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(160, 384, 3))
         draw = ImageDraw.Draw(canvas)
-        for idx, (x, y) in enumerate(waypoints[i].detach().cpu().numpy().copy()):
-            draw.ellipse((x-2, y-2, x+2, y+2), fill=COLORS[int((idx == waypoint_idx[i]).item())])
+        for idx, (x, y) in enumerate(zoom * waypoints[i].detach().cpu().numpy().copy()):
+            _x, _y = int(10*x)+192, 80-int(10*y)
+            if idx == 0:
+                draw.ellipse((_x-3, _y-3, _x+3, _y+3), fill=(0,255,0))
+            draw.ellipse((_x-2, _y-2, _x+2, _y+2), fill=COLORS[int((idx == waypoint_idx[i]).item())])
 
         loss_i = loss[i].sum()
-        draw.text((5, 10), 'Loss: %.2f' % loss_i)
-        draw.text((5, 20), 'True: <%s>, Predicted: <%s>' % (ACTIONS[action[i]], ACTIONS[_action[i]]))
+        draw.rectangle((0, 0, 384, 20), fill='black')
+        draw.text((5, 5), 'Query: <{0}> @ ({1:.1f}, {2:.1f}), Expert: <{3}>, Pred: <{4}>'.format(
+            ACTIONS[query[i]], r[i], t[i], ACTIONS[action[i]], ACTIONS[_action[i]]), font=font)
         images.append((loss_i, torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
 
     images.sort(key=lambda x: x[0], reverse=True)
@@ -59,7 +64,7 @@ def train_or_eval(net, data, optim, is_train, config):
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (rgb, goal, action, waypoints, waypoint_idx) in enumerate(iterator):
+    for i, (rgb, r, t, goal, action, query, waypoints, waypoint_idx) in enumerate(iterator):
         rgb = rgb.to(config['device'])
         goal = goal.to(config['device'])
         action = action.to(config['device'])
@@ -84,7 +89,9 @@ def train_or_eval(net, data, optim, is_train, config):
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
         if i % 100 == 0:
-            metrics['images'] = _log_visuals(rgb, loss, action, _action.argmax(dim=1), waypoints, waypoint_idx)
+            metrics['images'] = _log_visuals(rgb, loss, query, r, t, action,
+                    _action.argmax(dim=1), waypoints, waypoint_idx,
+                    data.dataloader.dataset.datasets[0].zoom)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
