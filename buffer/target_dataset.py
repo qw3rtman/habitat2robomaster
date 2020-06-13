@@ -86,14 +86,10 @@ class TargetDataset(torch.utils.data.Dataset):
                 self.waypoints[:, a] = goal_prediction(onehot,
                         a*torch.ones(self.rgb_f.shape[0]).cuda()).cpu()
                 #print(self.waypoints[5, a])
-                #print()
-                #print()
-                #print()
 
-        self.r, self.t = z2polar(*(self.zoom*self.waypoints.numpy().reshape(2, -1, 4, steps)))
-        #self.r, self.t = torch.as_tensor(r[-1]-r), torch.as_tensor((t[-1]-t)-(np.pi/2))
-        #self.r, self.t = torch.as_tensor(r).flip(dims=(2,)), torch.as_tensor((t[-1]-t)-(np.pi/2))
-        #print(episode_dir, r[0,0])
+        self.r = np.sqrt(np.square(self.zoom*self.waypoints[...,0]) +
+                np.square(self.zoom*self.waypoints[...,1]))
+        self.t = -np.arctan2(-self.waypoints[...,0], self.waypoints[...,1])
 
         self.goal = torch.as_tensor(np.stack([self.r, np.cos(-self.t), np.sin(-self.t)], axis=-1))
         goal = self.goal.cuda()
@@ -171,14 +167,25 @@ if __name__ == '__main__':
         for j, (x, y) in enumerate(waypoints * d.zoom):
             _x, _y = int(10*x)+192, 80-int(10*y)
             cv2.circle(rgb, (_x, _y), 3, (255, 0, 0) if j == waypoint_idx else (0, 0, 255), -1)
+
+        # inputs and outputs
         rgb[:25] = (255, 255, 255)
-        cv2.putText(rgb,
-            f'Frame {_idx}, Action {ACTIONS[_action]}, Step {_step}          Pred {ACTIONS[action]}',
+        cv2.putText(rgb, f"""Frame {_idx}, Action {ACTIONS[_action]}, \
+Step {_step}          Pred {ACTIONS[action]}""",
             (10, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
 
+        # (x, z)
+        rgb[140:,:124] = (255, 255, 255)
+        cv2.putText(rgb, f"""({d.zoom*d.waypoints[_idx, _action, _step, 0].item():.2f}, \
+{d.zoom*d.waypoints[_idx, _action, _step, 1].item():.2f})""",
+            (0, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        # (r, theta)
         rgb[140:,260:] = (255, 255, 255)
-        cv2.putText(rgb, f'({d.r[_idx, _action, _step].item():.2f}, {d.t[_idx, _action, _step].item():.2f})',
+        cv2.putText(rgb, f"""({d.r[_idx, _action, _step].item():.2f}, \
+{d.t[_idx, _action, _step].item():.2f})""",
             (260, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
         cv2.imshow('rgb', rgb)
         cv2.imshow('semantic', 255*np.uint8(d.onehot[_idx].reshape(160, -1)))
 
