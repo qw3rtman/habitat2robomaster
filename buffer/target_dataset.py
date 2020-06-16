@@ -7,7 +7,7 @@ from pathlib import Path
 from itertools import repeat
 import time
 
-from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only, get_model_args, z2polar
+from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only, get_model_args
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import GoalConditioned
@@ -89,7 +89,7 @@ class TargetDataset(torch.utils.data.Dataset):
 
         self.r = np.sqrt(np.square(self.zoom*self.waypoints[...,0]) +
                 np.square(self.zoom*self.waypoints[...,1]))
-        self.t = -np.arctan2(-self.waypoints[...,0], self.waypoints[...,1])
+        self.t = np.arctan2(-self.waypoints[...,0], self.waypoints[...,1])
 
         self.goal = torch.as_tensor(np.stack([self.r, np.cos(-self.t), np.sin(-self.t)], axis=-1))
         goal = self.goal.cuda()
@@ -136,6 +136,7 @@ if __name__ == '__main__':
     parser.add_argument('--source_teacher', type=Path, required=True)
     parser.add_argument('--goal_prediction', type=Path, required=True)
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--scene', type=str, required=True)
     parsed = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -155,7 +156,7 @@ if __name__ == '__main__':
     goal_prediction.eval()
 
     d = TargetDataset(source_teacher, goal_prediction, parsed.dataset_dir,
-            'apartment_2', data_args['zoom'], data_args['steps'])
+            parsed.scene, data_args['zoom'], data_args['steps'])
 
     cv2.namedWindow('rgb', cv2.WINDOW_NORMAL)
     cv2.resizeWindow('rgb', 768, 320)
@@ -169,7 +170,10 @@ if __name__ == '__main__':
         rgb = np.uint8(rgb)
         for j, (x, y) in enumerate(waypoints * d.zoom):
             _x, _y = int(10*x)+192, 80-int(10*y)
-            cv2.circle(rgb, (_x, _y), 3, (255, 0, 0) if j == waypoint_idx else (0, 0, 255), -1)
+            if j == 0:
+                cv2.circle(rgb, (_x, _y), 5, (0, 255, 0), -1)
+            cv2.circle(rgb, (_x, _y), 4 if j == waypoint_idx else 3,
+                    (255, 0, 0) if j == waypoint_idx else (0, 0, 255), -1)
 
         # inputs and outputs
         rgb[:25] = (255, 255, 255)

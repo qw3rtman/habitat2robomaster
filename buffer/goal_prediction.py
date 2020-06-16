@@ -1,11 +1,25 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 import time
 
 from . import resnet
 
+class CartesianToPolar(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, xy):
+        """
+        Assumes (x, y) are already scaled; i.e: [-zoom, zoom] x [-zoom, zoom]
+        t in [-pi, pi] -> [0, 2pi]
+        """
+        r = torch.sqrt(torch.pow(xy[...,0], 2) + torch.pow(xy[...,1], 2))
+        t = -torch.atan2(-xy[...,0], xy[...,1]) + np.pi
+
+        return torch.stack([r, t], dim=-1)
 
 class SpatialSoftmax(torch.nn.Module):
     """

@@ -31,8 +31,14 @@ def make_onehot(semantic, scene=None):
         instance_to_class = np.array(j['id_to_label'])
         class_names = {_class['name']: _class['id'] for _class in j['classes']}
         classes = instance_to_class[semantic]
-        floor = np.array([class_names['floor'], class_names['rug'], class_names['stair'],
-                 class_names['shower-stall'], class_names['basket']])
+
+        if scene == 'apartment_0':
+            floor = np.array([class_names['floor'], class_names['rug'], class_names['stair'],
+                     class_names['shower-stall'], class_names['basket']])
+        elif scene == 'apartment_2':
+            floor = np.array([class_names['floor'], class_names['rug']])
+        elif scene == 'frl_apartment_4':
+            floor = np.array([class_names['floor'], class_names['rug'], class_names['mat'], class_names['stair']])
         onehot[..., 0] = torch.as_tensor(np.isin(classes, floor), dtype=torch.float)
         #onehot[..., 1] = torch.as_tensor(classes == class_names['wall'], dtype=torch.float)
     else: # handle in env.py#step/#reset; TODO: move that logic to here
@@ -69,7 +75,7 @@ def fit_arc(xy, rotation, zoom=3, steps=8):
         rotation[0]).yaw_pitch_roll[1]), axis=-1)
 
     valid = np.any((path > zoom) | (path < -zoom), axis=1)
-    first_invalid = np.searchsorted(np.cumsum(valid), 1)
+    first_invalid = np.searchsorted(np.cumsum(valid), 1).item()
 
     x,y = path[:first_invalid].T
     xd = np.diff(x)
@@ -82,11 +88,7 @@ def fit_arc(xy, rotation, zoom=3, steps=8):
     xn = np.interp(t, u, x)
     yn = np.interp(t, u, y)
 
-    return xn, yn
-
-def z2polar(x, y):
-    z = x + 1j * y
-    return np.abs(z), np.angle(z)
+    return xn, yn, first_invalid
 
 def repeater(loader):
     for loader in repeat(loader):

@@ -10,12 +10,12 @@ for batch_size in [64, 128]:
         for lr in [1e-4, 1e-3]:
             for weight_decay in [0.0]: #5e-5]:
                 job = f"""wandb on; python -m buffer.train_rgb \\
---description {unique}-v8 \\
+--description {unique}-v4 \\
 --max_epoch 100 \\
 --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
---source_teacher /scratch/cluster/nimit/models/apartment_0-semantic-teacher/model_latest.t7 \\
---goal_prediction /scratch/cluster/nimit/wandb/run-20200612_035525-3556452068915189436/model_020.t7 \\
---dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_2-k=3 \\
+--source_teacher /scratch/cluster/nimit/models/apartment_0-semantic-teacher/002/model_030.t7 \\
+--goal_prediction /scratch/cluster/nimit/checkpoints/resnet34_0.0001_5e-05_64_10.0_semantic_6.14-v1/model_latest.t7 \\
+--dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0-k=3-target \\
 --resnet_model {resnet_model} \\
 --hidden_size 512 \\
 --batch_size {batch_size} \\

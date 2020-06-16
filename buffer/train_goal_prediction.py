@@ -10,7 +10,7 @@ import torchvision
 from PIL import Image, ImageDraw
 
 from .source_dataset import get_dataset
-from .goal_prediction import GoalPredictionModel
+from .goal_prediction import GoalPredictionModel, CartesianToPolar
 from .util import C, make_onehot
 
 import wandb
@@ -64,6 +64,7 @@ def train_or_eval(net, data, optim, is_train, config):
         desc = 'val'
         net.eval()
 
+    polar = CartesianToPolar()
     tick = time.time()
     losses = list()
 
@@ -75,8 +76,8 @@ def train_or_eval(net, data, optim, is_train, config):
         waypoints = waypoints.to(config['device']) * config['data_args']['zoom']
         _waypoints = net(target, actions) * config['data_args']['zoom']
 
-        loss = torch.abs(waypoints - _waypoints)
-        loss_mean = loss.sum((1, 2)).mean()
+        loss = torch.abs(polar(waypoints) - polar(_waypoints)).matmul(torch.tensor([1., 5.]).cuda())
+        loss_mean = loss.sum(-1).mean()
         losses.append(loss_mean.item())
 
         if is_train:
