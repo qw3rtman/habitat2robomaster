@@ -19,10 +19,10 @@ from habitat.core.env import Env
 from gym.spaces import Box, Dict, Discrete
 
 import sys
-sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
+sys.path.append('/u/nimit/Documents/robomaster/visual-navigation')
 from habitat_baselines.agents.ppo_agents import PPOAgent
 from habitat_dataset import HabitatDataset
-from util import C, make_onehot
+from util import C, make_onehot, draw_top_down_map
 
 TASKS = ['pointgoal']
 MODES = ['student', 'teacher', 'both', 'greedy']
@@ -119,6 +119,10 @@ class Rollout:
             env_config['SIMULATOR'][sensor].WIDTH  = self.width
             env_config['SIMULATOR'][sensor].HFOV   = self.fov
             env_config['SIMULATOR'][sensor].POSITION = [0.0, self.camera_height, 0.0]
+            # overhead
+            #env_config['SIMULATOR'][sensor].POSITION = [0.0, 5, 0.0] #self.camera_height, 0.0]
+            #env_config['SIMULATOR'][sensor].ORIENTATION = [-1.571, 0.0, 0.0]
+        print(env_config['SIMULATOR']['SEMANTIC_SENSOR'])
         env_config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle # NOTE: not working?
         env_config.SIMULATOR.AGENT_0.SENSORS            = sensors
         env_config.DATASET.SPLIT                        = SPLIT[dataset][split]
@@ -306,5 +310,24 @@ def save_episode(env, episode_dir, save=[]):
 
     compressor = Blosc(cname='zstd', clevel=3)
     for t, target in targets.items():
-        z = zarr.open(str(episode_dir / t), mode='w', shape=(len(target), *target[0].shape), chunks=False, dtype='f4', compressor=compressor)
+        z = zarr.open(str(episode_dir / t), mode='w', shape=(len(target), *target[0].shape), chunks=False, dtype='u1', compressor=compressor)
         z[:] = np.array(target)
+
+if __name__ == '__main__':
+    from PIL import Image
+
+    env = Rollout('pointgoal', 'semantic', 'rgb', mode='greedy', dataset='replica', scene='frl_apartment_4', sensors=['RGB_SENSOR', 'SEMANTIC_SENSOR'], height=160, width=384)
+    for i, step in enumerate(env.rollout()):
+        Image.fromarray(step['rgb']).save(f'cam/rgb_{i:03}.png')
+        np.save(f'cam/sem_{i:03}.npy', step['semantic'])
+        """
+        tmap = env.env.get_metrics()['top_down_map']
+        if tmap is not None:
+            #top_down_map = draw_top_down_map(env.env.get_metrics(), env.observations["heading"], env.env.get_metrics()['top_down_map']['map'].shape[0])
+            #print(top_down_map, type(top_down_map))
+            print(np.unique(tmap['map']), tmap['map'].dtype)
+            np.save(f'maptest/{i:03}.npy', tmap['map'])
+            #Image.fromarray(tmap['map']).save(f'maptest/{i:03}.png')
+            #print(tmap['agent_map_coord'])
+            #print(tmap['agent_angle'])
+        """

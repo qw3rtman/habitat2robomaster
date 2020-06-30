@@ -1,11 +1,15 @@
 import torch
-from pathlib import Path
-from itertools import repeat
 from pyquaternion import Quaternion
 import numpy as np
+import cv2
+
+from pathlib import Path
+from itertools import repeat
 import json
 import math
 import yaml
+
+from habitat.utils.visualizations import maps
 
 def get_model_args(model, key=None):
     config = yaml.load((model.parent / 'config.yaml').read_text())
@@ -15,6 +19,8 @@ def get_model_args(model, key=None):
     return config[key]['value']
 
 C = 1
+root = Path('/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets/replica')
+floor_y = {'frl_apartment_4': -1.3318579196929932}
 def make_onehot(semantic, scene=None):
     """
         input:  torch (B,H,W,1), dtype: torch/np.uint8
@@ -23,24 +29,24 @@ def make_onehot(semantic, scene=None):
     semantic = semantic.reshape(-1, 160, 384)
     onehot = torch.zeros((*semantic.shape, C), dtype=torch.float)
     if scene is not None: # replica mapping
-        mapping_f = Path(f'/scratch/cluster/nimit/habitat/habitat-api/data/scene_datasets/replica/{scene}/habitat/info_semantic.json')
-        if not mapping_f.exists():
-            mapping_f = Path(f'/Users/nimit/Documents/robomaster/habitat/habitat2robomaster/{scene}.json')
-        with open(mapping_f) as f:
+        with open(root / f'{scene}/habitat/info_semantic.json', 'r') as f:
             j = json.load(f)
+
         instance_to_class = np.array(j['id_to_label'])
         class_names = {_class['name']: _class['id'] for _class in j['classes']}
         classes = instance_to_class[semantic]
 
         if scene == 'apartment_0':
-            floor = np.array([class_names['floor'], class_names['rug'], class_names['stair'],
-                     class_names['shower-stall'], class_names['basket']])
+            floor = np.array([class_names['floor'], class_names['rug'],
+                class_names['stair'], class_names['shower-stall'],
+                class_names['basket']])
         elif scene == 'apartment_2':
             floor = np.array([class_names['floor'], class_names['rug']])
         elif scene == 'frl_apartment_4':
-            floor = np.array([class_names['floor'], class_names['rug'], class_names['mat'], class_names['stair']])
+            floor = np.array([class_names['floor'], class_names['rug'],
+                class_names['mat'], class_names['stair']])
+
         onehot[..., 0] = torch.as_tensor(np.isin(classes, floor), dtype=torch.float)
-        #onehot[..., 1] = torch.as_tensor(classes == class_names['wall'], dtype=torch.float)
     else: # handle in env.py#step/#reset; TODO: move that logic to here
         onehot[..., 0] = torch.as_tensor(semantic==2, dtype=torch.float)
         #onehot[..., 1] = torch.as_tensor((semantic!=2)&(semantic!=17)&(semantic!=28), dtype=torch.float)
@@ -49,18 +55,49 @@ def make_onehot(semantic, scene=None):
     return onehot
 
 
-f = 384 / (2 * np.tan(120 * np.pi / 360))
-A = torch.tensor([[ f, 0., 192.],
-                  [0.,  f,   0.],
-                  [0., 0.,   1.]])
+f = 384 / (2*np.tan(np.deg2rad(120/2)))
+# py = 0.25 actually, but 0.40 approximately accounts for offsets
+py, cx, cy = 0.40, 192, 80
+def get_navigable(ep, scene):
+    """
+        Given an episode.csv + scene, project the walkable region into camera
+        coordinates at y=0. Similar to floor semantic segmentation, but does
+        not make any assumptions about occlusions. Can take the AND with floor
+        segmentation to obtain the true navigable region in camera coordinates.
+    """
+    fpv = np.zeros((len(ep), 160, 384), dtype=np.bool)
+
+    points = np.load(root / f'{scene}/floorplan.npy')
+    points = points[np.isclose(points[:,1], floor_y[scene])]
+    for i in range(len(ep)):
+        centered = points-np.array(ep.iloc[i][['x','y','z']])
+        centered[:, [2,0]] = np.stack(rotate_origin_only(centered[:,2],
+            centered[:,0], Quaternion(*np.array(ep.iloc[i][['i', 'j', 'k', 'l']]
+            )).angle), axis=-1)
+
+        wty = (cy - (f/(-(centered[:,2])))*py)
+        wtx = cx + ((centered[:,0])*(cy-wty))/py
+
+        uv = np.int64(np.stack([wtx, 160-wty]))
+        uv = uv[:,(uv[0]>=0)&(uv[0]<384)&(uv[1]>=0)&(uv[1]<160)&(uv[1]>=80)]
+        fpv[i, uv[1], uv[0]] = 1
+        fpv[i] = cv2.dilate(np.uint8(fpv[i]), np.ones((2,2), np.uint8), iterations=3).astype(np.bool) # (2,2)x3 is good for 1000000 samples in frl_apartment_4
+
+    return fpv
+
+fx = 1 / (np.tan((120*np.pi/180)/2)) # 384
+fy = 1 / (np.tan((120*np.pi/180)/2)) # 160
+A = torch.tensor([[fx,  0., 0.],
+                  [0.,  fy, 0.],
+                  [0.,  0.,   1.]])
 
 def world_to_cam(x, y):
-    M = torch.FloatTensor(np.stack([x, y, np.ones(y.shape[0])]))
-    u, v = torch.mm(A, M)[:2]
-    return u, v
+    M = torch.FloatTensor(np.stack([x, np.ones(y.shape[0]), y]))
+    return torch.mm(A, M)[[0, 2]]
 
 def cam_to_world(u, v):
-    return torch.mm(A.inverse(), torch.stack([u, v, torch.ones_like(u)]))[:2]
+    U = torch.stack([u, torch.ones_like(u), v])
+    return torch.mm(A.inverse(), U)[[0, 2]]
 
 def rotate_origin_only(x, y, radians):
     """Only rotate a point around the origin (0, 0)."""
@@ -116,3 +153,25 @@ class Wrap(object):
 
     def __len__(self):
         return self.samples
+
+def draw_top_down_map(info, heading, output_size):
+    top_down_map = maps.colorize_topdown_map(info["top_down_map"]["map"])
+    original_map_size = top_down_map.shape[:2]
+    map_scale = np.array(
+        (1, original_map_size[1] * 1.0 / original_map_size[0])
+    )
+    new_map_size = np.round(output_size * map_scale).astype(np.int32)
+    # OpenCV expects w, h but map size is in h, w
+    top_down_map = cv2.resize(top_down_map, (new_map_size[1], new_map_size[0]))
+
+    map_agent_pos = info["top_down_map"]["agent_map_coord"]
+    map_agent_pos = np.round(
+        map_agent_pos * new_map_size / original_map_size
+    ).astype(np.int32)
+    top_down_map = maps.draw_agent(
+        top_down_map,
+        map_agent_pos,
+        heading - np.pi / 2,
+        agent_radius_px=top_down_map.shape[0] / 40,
+    )
+    return top_down_map

@@ -2,12 +2,13 @@ import torch
 import numpy as np
 from joblib import Memory
 import zarr
+import pandas as pd
 
 from pathlib import Path
 from itertools import repeat
 import time
 
-from .util import cam_to_world, make_onehot, Wrap, C, rotate_origin_only, get_model_args
+from .util import cam_to_world, make_onehot, get_navigable, Wrap, C, rotate_origin_only, get_model_args
 import sys
 sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
 from model import GoalConditioned
@@ -76,9 +77,14 @@ class TargetDataset(torch.utils.data.Dataset):
         source_teacher.eval()
         goal_prediction.eval()
 
-        onehot = torch.as_tensor(make_onehot(np.uint8(zarr.open(
-            str(self.episode_dir / 'semantic'), mode='r')[:]),
-            scene=scene).reshape(-1, C, 160, 384), dtype=torch.float).cuda()
+        floor = np.asarray((make_onehot(np.uint8(zarr.open(str(self.episode_dir
+            /'semantic'), mode='r')[:]), scene=scene)), dtype=np.bool).squeeze()
+        navigable = get_navigable(pd.read_csv(self.episode_dir/'episode.csv'), scene)
+
+        print(floor.dtype, navigable.dtype)
+        onehot = torch.as_tensor(floor & navigable,
+                dtype=torch.float).reshape(-1, C, 160, 384).cuda()
+
         self.waypoints = torch.empty(self.rgb_f.shape[0], 4, steps, 2)
         #print(episode_dir, onehot.sum())
         with torch.no_grad():
