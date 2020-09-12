@@ -140,13 +140,13 @@ class InverseDynamics(nn.Module):
         assert self.target in MODALITIES
         if self.target == 'depth':
             input_channels = 1
-            target_space = spaces.Box(low=0, high=1, shape=(height, width), dtype=np.float32)
+            target_space = spaces.Box(low=0, high=1, shape=(height, width, input_channels), dtype=np.float32)
         elif self.target == 'rgb':
             input_channels = 3
-            target_space = spaces.Box(low=0, high=255, shape=(height, width), dtype=np.uint8)
+            target_space = spaces.Box(low=0, high=255, shape=(height, width, input_channels), dtype=np.uint8)
         elif self.target == 'semantic':
             input_channels = C
-            target_space = spaces.Box(low=0, high=1, shape=(height, width), dtype=np.bool)
+            target_space = spaces.Box(low=0, high=1, shape=(height, width, input_channels), dtype=np.bool)
 
         observation_spaces = spaces.Dict({self.target: target_space})
 
@@ -155,7 +155,7 @@ class InverseDynamics(nn.Module):
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=(self.target=='rgb'),
+            normalize_visual_inputs=self.target=='rgb',
             input_channels=input_channels)
 
         self.t2 = ResNetEncoder(
@@ -163,20 +163,19 @@ class InverseDynamics(nn.Module):
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=(self.target=='rgb'),
+            normalize_visual_inputs=self.target=='rgb',
             input_channels=input_channels)
 
         self.visual_fc = nn.Sequential(
             Flatten(),
-            nn.Linear(2*np.prod(self.t1.output_shape), hidden_size),
+            nn.Linear(np.prod(self.t1.output_shape)+np.prod(self.t2.output_shape), hidden_size),
             nn.ReLU(True))
 
         self.action_distribution = CategoricalNet(hidden_size, dim_actions)
 
     def forward(self, x1, x2):
-        visual_feats = self.visual_fc(torch.cat([
+        visual_feats = self.visual_fc(torch.stack([
             self.t1({self.target: x1}),
-            self.t2({self.target: x2})]))
+            self.t2({self.target: x2})], dim=1))
 
-        features = torch.cat([visual_feats, goal_encoding], dim=1)
-        return self.action_distribution(features)
+        return self.action_distribution(visual_feats)

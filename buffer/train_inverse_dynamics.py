@@ -1,0 +1,242 @@
+import argparse
+from pathlib import Path
+from operator import itemgetter
+import time
+import tqdm
+import pickle
+import wandb
+
+import torch
+import torchvision
+import numpy as np
+
+import sys
+sys.path.append('/u/nimit/Documents/robomaster/habitat2robomaster')
+
+from model import InverseDynamics
+from wrapper import MODELS, MODALITIES, SPLIT, Rollout, replay_episode
+from frame_buffer import ReplayBuffer, LossSampler
+from util import C, make_onehot
+
+
+def loop(net, data, replay_buffer, uids, env, optim, config, mode='train'):
+    if mode == 'train':
+        net.train()
+    else:
+        net.eval()
+
+    losses = list()
+    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+
+    correct, total = 0, 0
+    tick = time.time()
+    for idx, target, goal, _, action in tqdm.tqdm(data, desc=mode, total=len(data), leave=False):
+        if config['student_args']['target'] == 'semantic':
+            target = make_onehot(target.reshape(-1, config['data_args']['height'], config['data_args']['width']),
+                    scene=config['teacher_args']['scene'] if config['teacher_args']['dataset'] == 'replica' else None).to(config['device'])
+        else:
+            target = torch.as_tensor(target, device=config['device'], dtype=torch.float32)
+            target = target.reshape(config['data_args']['batch_size'],
+                    config['data_args']['height'], config['data_args']['width'], -1)
+
+        action = torch.as_tensor(action, device=config['device'], dtype=torch.int64)
+
+        _action = net((target, goal)).logits
+        loss = criterion(_action, action)
+        loss_mean = loss.mean()
+
+        uids.update(replay_buffer.uids[idx])
+        correct += (action == _action.argmax(dim=1)).sum().item()
+        total += target.shape[0]
+
+        if mode == 'train':
+            loss_mean.backward()
+            optim.step()
+            optim.zero_grad()
+
+        #replay_buffer.update_loss(idx, loss.detach().cpu().numpy())
+        losses.append(loss_mean.item())
+
+        wandb.run.summary['step'] += 1
+        metrics = {'loss': loss_mean.item(),
+                   'images_per_second': target.shape[0] / (time.time() - tick),
+                   'unique_samples': len(uids)}
+        wandb.log({('%s/%s' % ('train', k)): v for k, v in metrics.items()},
+                   step=wandb.run.summary['step'])
+        tick = time.time()
+
+    wandb.log({'train/acc': correct/total}, step=wandb.run.summary['step'])
+    return np.mean(losses)
+
+
+def resume_project(net, scheduler, replay_buffer, uids, config):
+    print('Resumed at epoch %d.' % wandb.run.summary['epoch'])
+
+    net.load_state_dict(torch.load(config['checkpoint_dir'] / 'model_latest.t7'))
+    scheduler.load_state_dict(torch.load(config['checkpoint_dir'] / 'scheduler_latest.t7'))
+    if (config['checkpoint_dir'] / 'buffer').exists():
+        replay_buffer.load(config['checkpoint_dir'] / 'buffer')
+    with open(config['checkpoint_dir'] / 'uids.pickle', 'rb') as f:
+        uids = pickle.load(f)
+
+def checkpoint_project(net, scheduler, replay_buffer, uids, config):
+    torch.save(net.state_dict(), config['checkpoint_dir'] / 'model_latest.t7')
+    torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
+    replay_buffer.save(config['checkpoint_dir'] / 'buffer', overwrite=True)
+    with open(config['checkpoint_dir'] / 'uids.pickle', 'wb') as f:
+        pickle.dump(uids, f)
+
+
+def main(config):
+    net = GoalConditioned(**config['student_args'], **config['data_args']).to(config['device'])
+    optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
+            milestones=[config['max_epoch'] * 0.5, config['max_epoch'] * 0.75])
+
+    # TODO: should support gibson+mp3d, not just gibson
+    sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+    mode = 'teacher' if config['teacher_args']['supervision'] == 'ddppo' else config['teacher_args']['supervision']
+    env = Rollout('pointgoal', config['teacher_args']['proxy'],
+            config['student_args']['target'], mode=mode, shuffle=False, split='train',
+            dataset=config['teacher_args']['dataset'], scene=config['teacher_args']['scene'],
+            sensors=sensors[:(3 if config['student_args']['target'] == 'semantic' else 2)],
+            k=config['student_args']['dagger'], **config['data_args'])
+
+    uids = set()
+    replay_buffer = ReplayBuffer(int(2e5), history_size=int(config['student_args']['history_size']),
+            dshape=(config['data_args']['height'], config['data_args']['width'],
+                3 if config['student_args']['target'] == 'rgb' else 1),
+            dtype=torch.uint8, goal_size=config['student_args']['goal_size'])
+
+    sampler = LossSampler(replay_buffer, config['data_args']['batch_size'])
+
+    project_name = 'pointgoal-{}2{}-student'.format(config['teacher_args']['proxy'], config['student_args']['target'])
+    wandb.init(project=project_name, config=config, id=str(hash(config['run_name'])),
+            name=config['run_name'], resume=True)
+    wandb.save(str(Path(wandb.run.dir) / '*.t7'))
+    if wandb.run.resumed:
+        resume_project(net, scheduler, replay_buffer, uids, config)
+    else:
+        wandb.run.summary['step']    = 0
+        wandb.run.summary['epoch']   = 0
+        wandb.run.summary['success'] = 0
+        wandb.run.summary['spl']     = 0
+        wandb.run.summary['softspl'] = 0
+
+    success, spl, softspl = [], [], []
+    for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
+        wandb.run.summary['epoch'] = epoch
+
+        for _ep in range(512):
+            _success, _spl, _softspl = replay_episode(env, replay_buffer)#, score_by=net)
+            success.append(_success); spl.append(_spl); softspl.append(_softspl)
+            wandb.run.summary['success'] = np.mean(success)
+            wandb.run.summary['spl']     = np.mean(spl)
+            wandb.run.summary['softspl'] = np.mean(softspl)
+
+        dataset = replay_buffer.get_dataset()
+        data = torch.utils.data.DataLoader(dataset, num_workers=0, pin_memory=True, batch_sampler=sampler)
+
+        loss_train = loop(net, data, replay_buffer, uids, env, optim, config, mode='train')
+        scheduler.step()
+
+        wandb.log({'train/loss_epoch': loss_train, 'buffer_capacity': replay_buffer.size}, step=wandb.run.summary['step'])
+        if wandb.run.summary['epoch'] % 10 == 0:
+            torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
+
+        checkpoint_project(net, scheduler, replay_buffer, uids, config)
+
+
+def get_run_name(parsed):
+    return '-'.join(map(str, [
+        'dagger' if parsed.dagger > 0 else 'bc', parsed.method,              # paradigm
+        parsed.hidden_size, parsed.resnet_model,                             # model
+        parsed.supervision, 'pre' if parsed.pretrained else 'scratch',       # model
+        parsed.dataset, parsed.scene, f'{parsed.proxy}2{parsed.target}',     # modalities
+        parsed.history_size, parsed.goal, # f'k={parsed.dagger}'             # dataset
+        f'{parsed.height}x{parsed.width}', parsed.fov, parsed.camera_height, # dataset
+        parsed.batch_size, parsed.lr, parsed.weight_decay                    # hyperparams
+    ])) + f'-v{parsed.description}'
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--description', type=str, required=True)
+    parser.add_argument('--max_epoch', type=int, default=200)
+    parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
+
+    # Teacher args.
+    parser.add_argument('--supervision', choices=['ddppo', 'greedy'], required=True)
+    parser.add_argument('--proxy', choices=MODELS.keys(), required=True)
+    parser.add_argument('--dataset', choices=SPLIT.keys(), required=True)
+    parser.add_argument('--scene', default='*')
+
+    # Student args.
+    parser.add_argument('--target', choices=MODALITIES, required=True)
+    parser.add_argument('--hidden_size', type=int, required=True)
+    parser.add_argument('--resnet_model', required=True)
+    parser.add_argument('--history_size', type=int, default=1)
+    parser.add_argument('--method', choices=['feedforward', 'backprop'], required=True)
+    parser.add_argument('--dagger', type=int, default=0)
+    parser.add_argument('--pretrained', action='store_true')
+
+    # Data args.
+    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--height', type=int, default=256)
+    parser.add_argument('--width', type=int, default=256)
+    parser.add_argument('--fov', type=int, default=90)
+    parser.add_argument('--camera_height', type=float, default=1.5)
+
+    # Optimizer args.
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--weight_decay', type=float, default=5e-5)
+
+    parsed = parser.parse_args()
+    run_name = get_run_name(parsed)
+
+    checkpoint_dir = parsed.checkpoint_dir / run_name
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    config = {
+            'run_name': run_name,
+            'max_epoch': parsed.max_epoch,
+            'checkpoint_dir': checkpoint_dir,
+
+            'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+            'gpu': torch.cuda.get_device_name(0),
+
+            'teacher_args': {
+                'supervision': parsed.supervision,
+                'proxy': parsed.proxy,
+                'dataset': parsed.dataset,
+                'scene': parsed.scene
+                },
+
+            'student_args': {
+                'target': parsed.target,
+                'resnet_model': parsed.resnet_model,
+                'history_size': parsed.history_size,
+                'hidden_size': parsed.hidden_size,
+                'method': parsed.method,
+                'dagger': parsed.dagger,
+                'pretrained': parsed.pretrained
+                },
+
+            'data_args': {
+                'batch_size': parsed.batch_size,
+                'height': parsed.height,
+                'width': parsed.width,
+                'fov': parsed.fov,
+                'camera_height': parsed.camera_height
+                },
+
+            'optimizer_args': {
+                'lr': parsed.lr,
+                'weight_decay': parsed.weight_decay
+                }
+            }
+
+    main(config)
+
+
