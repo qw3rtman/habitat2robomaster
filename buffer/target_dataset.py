@@ -61,7 +61,8 @@ def get_dataset(source_teacher, goal_prediction, dataset_dir, scene, batch_size=
                 kwargs.get('dataset_size', 1.0))
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
-        return Wrap(data, batch_size, 1000 if is_train else 100, num_workers)
+        # 1000, 100
+        return Wrap(data, batch_size, 500 if is_train else 50, num_workers)
 
     return make_dataset(True), make_dataset(False)
 

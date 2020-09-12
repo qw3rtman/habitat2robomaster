@@ -131,3 +131,52 @@ class ConditionalStateEncoderImitation(nn.Module):
             deterministic=False)
 
         return self.actor_critic.prev_distribution.logits
+
+class InverseDynamics(nn.Module):
+    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, height=256, width=256, **kwargs):
+        super().__init__()
+
+        self.target = target
+        assert self.target in MODALITIES
+        if self.target == 'depth':
+            input_channels = 1
+            target_space = spaces.Box(low=0, high=1, shape=(height, width), dtype=np.float32)
+        elif self.target == 'rgb':
+            input_channels = 3
+            target_space = spaces.Box(low=0, high=255, shape=(height, width), dtype=np.uint8)
+        elif self.target == 'semantic':
+            input_channels = C
+            target_space = spaces.Box(low=0, high=1, shape=(height, width), dtype=np.bool)
+
+        observation_spaces = spaces.Dict({self.target: target_space})
+
+        self.t1 = ResNetEncoder(
+            observation_spaces,
+            baseplanes=resnet_baseplanes,
+            ngroups=resnet_baseplanes//2,
+            make_backbone=getattr(resnet, resnet_model),
+            normalize_visual_inputs=(self.target=='rgb'),
+            input_channels=input_channels)
+
+        self.t2 = ResNetEncoder(
+            observation_spaces,
+            baseplanes=resnet_baseplanes,
+            ngroups=resnet_baseplanes//2,
+            make_backbone=getattr(resnet, resnet_model),
+            normalize_visual_inputs=(self.target=='rgb'),
+            input_channels=input_channels)
+
+        self.visual_fc = nn.Sequential(
+            Flatten(),
+            nn.Linear(2*np.prod(self.t1.output_shape), hidden_size),
+            nn.ReLU(True))
+
+        self.action_distribution = CategoricalNet(hidden_size, dim_actions)
+
+    def forward(self, x1, x2):
+        visual_feats = self.visual_fc(torch.cat([
+            self.t1({self.target: x1}),
+            self.t2({self.target: x2})]))
+
+        features = torch.cat([visual_feats, goal_encoding], dim=1)
+        return self.action_distribution(features)

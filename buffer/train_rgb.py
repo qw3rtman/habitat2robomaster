@@ -115,7 +115,7 @@ def checkpoint_project(net, optim, scheduler, config):
 
 def main(config):
     net = GoalConditioned(**config['student_args'], **config['data_args']).to(config['device'])
-    data_train, data_val = get_dataset(**config['data_args'], scene='apartment_2')
+    data_train, data_val = get_dataset(**config['data_args'], scene='frl_apartment_4')
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
@@ -144,7 +144,7 @@ def main(config):
             wandb.run.summary['best_epoch'] = epoch
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 10 == 0:
+        if epoch % 1 == 0: # NOTE: temporary
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 
