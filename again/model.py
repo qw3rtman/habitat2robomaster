@@ -59,49 +59,51 @@ class PointGoalPolicy(nn.Module):
         return self.action_distribution(self.concat_fc(features))
 
 class InverseDynamics(nn.Module):
-    def __init__(self, target, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, dim_actions=4, height=256, width=256, **kwargs):
+    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, action_dim=3, **kwargs):
         super().__init__()
 
-        self.target = target
-        assert self.target in MODALITIES
-        if self.target == 'depth':
-            input_channels = 1
-            target_space = spaces.Box(low=0, high=1, shape=(height, width, input_channels), dtype=np.float32)
-        elif self.target == 'rgb':
-            input_channels = 3
-            target_space = spaces.Box(low=0, high=255, shape=(height, width, input_channels), dtype=np.uint8)
-        elif self.target == 'semantic':
-            input_channels = C
-            target_space = spaces.Box(low=0, high=1, shape=(height, width, input_channels), dtype=np.bool)
+        observation_spaces = spaces.Dict({
+            'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+        })
 
-        observation_spaces = spaces.Dict({self.target: target_space})
-
-        self.t1 = ResNetEncoder(
+        self.R1 = ResNetEncoder(
             observation_spaces,
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=self.target=='rgb',
-            input_channels=input_channels)
+            normalize_visual_inputs=False,
+            input_channels=1)
 
-        self.t2 = ResNetEncoder(
-            observation_spaces,
-            baseplanes=resnet_baseplanes,
-            ngroups=resnet_baseplanes//2,
-            make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=self.target=='rgb',
-            input_channels=input_channels)
-
-        self.visual_fc = nn.Sequential(
+        self.visual_fc1 = nn.Sequential(
             Flatten(),
-            nn.Linear(np.prod(self.t1.output_shape)+np.prod(self.t2.output_shape), hidden_size),
+            #nn.Linear(np.prod(self.R1.output_shape), hidden_size),
+            nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
 
-        self.action_distribution = CategoricalNet(hidden_size, dim_actions)
+        self.R2 = ResNetEncoder(
+            observation_spaces,
+            baseplanes=resnet_baseplanes,
+            ngroups=resnet_baseplanes//2,
+            make_backbone=getattr(resnet, resnet_model),
+            normalize_visual_inputs=False,
+            input_channels=1)
 
-    def forward(self, x1, x2):
-        visual_feats = self.visual_fc(torch.stack([
-            self.t1({self.target: x1}),
-            self.t2({self.target: x2})], dim=1))
+        self.visual_fc2 = nn.Sequential(
+            Flatten(),
+            #nn.Linear(np.prod(self.R2.output_shape), hidden_size),
+            nn.Linear(2304, hidden_size), # hack
+            nn.ReLU(True))
 
-        return self.action_distribution(visual_feats)
+        self.concat_fc = nn.Sequential(
+            nn.Linear(2*hidden_size, hidden_size),
+            nn.ReLU(True),
+            nn.Linear(hidden_size, hidden_size//2))
+
+        self.action_distribution = CategoricalNet(hidden_size//2, action_dim)
+
+    def forward(self, rgb1, rgb2):
+        return self.action_distribution(self.concat_fc(torch.cat([
+            self.visual_fc1(self.R1({'semantic': rgb1})),
+            self.visual_fc2(self.R2({'semantic': rgb2}))
+        ], dim=1)))
+
