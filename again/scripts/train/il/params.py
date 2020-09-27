@@ -11,7 +11,7 @@ for batch_size in [16, 32]:
             for lr in [2e-4]:
                 for weight_decay in [3.8e-7]:
                     job = f"""ulimit -n 4096; python -m again.train_il \\
-    --description {unique}-semantic-v1 \\
+    --description {unique}-semantic-aux-v1 \\
     --max_epoch 200 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\

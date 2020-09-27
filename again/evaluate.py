@@ -7,7 +7,7 @@ import numpy as np
 import yaml
 from PIL import Image, ImageDraw, ImageFont
 
-from .model import PointGoalPolicy
+from .model import PointGoalPolicy, InverseDynamics, PointGoalPolicyAux
 from .wrapper import Rollout
 from .dataset import polar1, polar2, rff
 
@@ -20,15 +20,35 @@ if __name__ == '__main__':
     parser.add_argument('--dataset') # override's config.yaml
     parser.add_argument('--scene')   # ^^^
     parser.add_argument('--split', required=True)
+    parser.add_argument('--aux_model', type=Path)
     parsed = parser.parse_args()
 
     config = yaml.load((parsed.model.parent / 'config.yaml').read_text())
     run_name = f"{config['run_name']['value']}-model_{parsed.epoch:03}-{parsed.split}"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    net = PointGoalPolicy(**config['model_args']['value'], **config['data_args']['value']).to(device)
+    """ normal
+    net = PointGoalPolicy(**config['model_args']['value']).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.eval()
+    """
+
+    if parsed.aux_model is not None:
+        aux_config = yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())
+        aux_net = InverseDynamics(**aux_config['model_args']['value']).to(device)
+        aux_net.load_state_dict(torch.load(parsed.aux_model, map_location=device))
+        aux_net.eval()
+    else:
+        aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
+        aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
+        aux_net.eval()
+
+    net = PointGoalPolicyAux(aux_net, **config['model_args']['value']).to(device)
+    net.load_state_dict(torch.load(parsed.model, map_location=device))
+    net.eval()
+
+    if parsed.aux_model is not None:
+        net.id = aux_net
 
     env = Rollout(shuffle=True, split='val', dataset='replica', scenes=parsed.scene)
 

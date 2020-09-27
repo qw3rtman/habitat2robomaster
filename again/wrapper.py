@@ -94,7 +94,7 @@ class Rollout:
     def act(self, net=None, goal_fn=polar1):
         if net is not None:
             #rgb = torch.as_tensor(self.observations['rgb'], dtype=torch.float, device=self.device).unsqueeze(dim=0)
-            rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene='apartment_0'), dtype=torch.float, device=self.device)
+            rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene='frl_apartment_4'), dtype=torch.float, device=self.device)
             r, t = self.observations['pointgoal_with_gps_compass']
             if np.sqrt(r**2+t**2) < 0.2: # hardcode STOP
                 return {'action': 0}
@@ -171,11 +171,12 @@ def save_episode(env, episode_dir):
     pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
 
     compressor = Blosc(cname='zstd', clevel=3)
+
     z = zarr.open(str(episode_dir / 'rgb'), mode='w', shape=(len(rgb), *rgb[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(rgb)
 
-    z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
-    z[:] = np.array(depth)
+    #z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
+    #z[:] = np.array(depth)
 
     z = zarr.open(str(episode_dir / 'semantic'), mode='w', shape=(len(semantic), *semantic[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(semantic)

@@ -55,7 +55,6 @@ class PointGoalPolicy(nn.Module):
         goal_encoding = self.goal_fc(goal)
 
         features = torch.cat([visual_encoding, goal_encoding], dim=1)
-
         return self.action_distribution(self.concat_fc(features))
 
 class InverseDynamics(nn.Module):
@@ -80,6 +79,7 @@ class InverseDynamics(nn.Module):
             nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
 
+        """
         self.R2 = ResNetEncoder(
             observation_spaces,
             baseplanes=resnet_baseplanes,
@@ -93,6 +93,7 @@ class InverseDynamics(nn.Module):
             #nn.Linear(np.prod(self.R2.output_shape), hidden_size),
             nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
+        """
 
         self.concat_fc = nn.Sequential(
             nn.Linear(2*hidden_size, hidden_size),
@@ -104,6 +105,29 @@ class InverseDynamics(nn.Module):
     def forward(self, rgb1, rgb2):
         return self.action_distribution(self.concat_fc(torch.cat([
             self.visual_fc1(self.R1({'semantic': rgb1})),
-            self.visual_fc2(self.R2({'semantic': rgb2}))
+            self.visual_fc1(self.R1({'semantic': rgb2}))
         ], dim=1)))
 
+class PointGoalPolicyAux(nn.Module): # Auxiliary task of Inverse Dynamics
+    def __init__(self, inverse_dynamics, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=128, action_dim=3, goal_dim=3, **kwargs):
+        super().__init__()
+
+        self.id = inverse_dynamics
+
+        self.goal_fc = nn.Linear(goal_dim, hidden_size)
+
+        self.concat_fc = nn.Sequential(
+            nn.Linear(3*hidden_size, hidden_size),
+            nn.ReLU(True),
+            nn.Linear(hidden_size, hidden_size//2))
+
+        self.action_distribution = CategoricalNet(hidden_size//2, action_dim)
+
+    def forward(self, rgb, goal):
+        # TODO: freeze self.id weights
+        features = torch.cat([
+            self.id.visual_fc1(self.id.R1({'semantic': rgb})),
+            self.goal_fc(goal)
+        ], dim=1)
+
+        return self.action_distribution(self.concat_fc(features))

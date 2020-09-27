@@ -1,5 +1,6 @@
 import argparse
 import time
+import yaml
 
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
-from .model import PointGoalPolicy
+from .model import PointGoalPolicy, InverseDynamics, PointGoalPolicyAux
 from .dataset import get_dataset
 
 import wandb
@@ -99,13 +100,18 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    net = PointGoalPolicy(**config['model_args'], **config['data_args']).to(config['device'])
+    # NOTE: loading aux task
+    aux_net = InverseDynamics(**config['aux_model_args']).to(config['device'])
+    aux_net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
+    aux_net.eval() # NOTE: does this freeze the weights?
+
+    net = PointGoalPolicyAux(aux_net, **config['model_args']).to(config['device'])
     data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
 
-    project_name = 'pointgoal-il'
+    project_name = 'pointgoal-il-aux'
     wandb.init(project=project_name, config=config, name=config['run_name'],
             resume=True, id=str(hash(config['run_name'])))
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
@@ -139,6 +145,9 @@ if __name__ == '__main__':
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
+    # Aux model args.
+    parser.add_argument('--aux_model', type=Path, required=True)
+
     # Model args.
     parser.add_argument('--resnet_model', default='resnet50')
     parser.add_argument('--hidden_size', type=int, required=True)
@@ -165,6 +174,9 @@ if __name__ == '__main__':
             'checkpoint_dir': checkpoint_dir,
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
+
+            'aux_model': parsed.aux_model,
+            'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
 
             'model_args': {
                 'resnet_model': parsed.resnet_model,

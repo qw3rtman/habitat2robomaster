@@ -54,6 +54,7 @@ class ConsecutiveDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         if not hasattr(self, 'semantic_f'):
-            self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-        t1, t2 = make_onehot(self.semantic_f[idx:idx+2], scene='apartment_0')
+            #self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
+        t1, t2 = make_onehot(self.semantic_f[idx:idx+2], scene='frl_apartment_4')
         return t1, t2, self.actions[idx] - 1
