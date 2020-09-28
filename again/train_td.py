@@ -10,29 +10,28 @@ import torch
 import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
-from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux
-from .dataset import get_dataset
+from .model import TemporalDistance
+from .pair_dataset import get_dataset
 
 import wandb
 
-ACTIONS = ['F', 'L', 'R']
-
-def _log_visuals(rgb, goal, action, _action, loss):
+def _log_visuals(t1, t2, distance, _distance, loss):
     font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 12)
     images = list()
 
-    goal = goal.cpu().numpy()
-    r, t = goal[:,0], -np.arccos(goal[:,1])
+    rgb = torch.cat([t1, t2], dim=1)
     for i in range(min(rgb.shape[0], 64)):
-        canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(160, 384, 3))
+        canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(-1, 384, 3))
         draw = ImageDraw.Draw(canvas)
 
+        loss_i = loss[i].sum()
         draw.rectangle((0, 0, 384, 20), fill='black')
-        draw.text((5, 5), f'Goal: ({r[i]:.2f}, {t[i]:.2f}), Expert: <{ACTIONS[action[i]]}>, Pred: <{ACTIONS[_action[i]]}>', font=font)
-        images.append((loss[i].sum(), torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
+        draw.text((5, 5), 'Distance: <{}> Pred: <{}>'.format(distance[i], _distance[i]))
+        images.append((loss_i, torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
 
-    result = torchvision.utils.make_grid([x[1] for x in \
-            sorted(images, key=lambda x: x[0], reverse=True)[:32]], nrow=4)
+    images.sort(key=lambda x: x[0], reverse=True)
+
+    result = torchvision.utils.make_grid([x[1] for x in images[:32]], nrow=4)
     result = [wandb.Image(result.numpy().transpose(1, 2, 0))]
 
     return result
@@ -52,18 +51,18 @@ def train_or_eval(net, data, optim, is_train, config):
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (rgb, goal, action) in enumerate(iterator):
-        rgb = rgb.to(config['device'])
-        goal = goal.to(config['device'])
-        action = action.to(config['device'])
+    for i, (t1, t2, _, distance) in enumerate(iterator):
+        t1 = t1.to(config['device'])
+        t2 = t2.to(config['device'])
+        distance = distance.to(config['device'])
 
-        _action = net(rgb, goal).logits
+        _distance = net(t1, t2).logits
 
-        loss = criterion(_action, action)
+        loss = criterion(_distance, distance)
         loss_mean = loss.mean()
 
-        correct += (action == _action.argmax(dim=1)).sum().item()
-        total += rgb.shape[0]
+        correct += (distance == _distance.argmax(dim=1)).sum().item()
+        total += t1.shape[0]
 
         if is_train:
             loss_mean.backward()
@@ -75,9 +74,9 @@ def train_or_eval(net, data, optim, is_train, config):
         losses.append(loss_mean.item())
 
         metrics = {'loss': loss_mean.item(),
-                   'images_per_second': rgb.shape[0] / (time.time() - tick)}
+                   'images_per_second': t1.shape[0] / (time.time() - tick)}
         #if i % 50 == 0:
-            #metrics['images'] = _log_visuals(rgb, goal, action, _action.argmax(dim=1), loss)
+            #metrics['images'] = _log_visuals(t1, t2, action, _action.argmax(dim=1), loss)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
@@ -100,21 +99,19 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
-    # NOTE: loading aux task
-    aux_net = InverseDynamics(**config['aux_model_args']).to(config['device'])
-    aux_net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
-    aux_net.eval() # NOTE: does this freeze the weights?
+    """
+    net = TemporalDistance(**config['aux_model_args']).to(config['device'])
+    net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
+    """
 
-    net = PointGoalPolicyAux(aux_net, **config['model_args']).to(config['device'])
-    for param in net.aux.parameters():
-        param.requires_grad = False
+    net = TemporalDistance(**config['model_args']).to(config['device'])
 
     data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, gamma=0.5,
             milestones=[mult * config['max_epoch'] for mult in [0.5, 0.75]])
 
-    project_name = 'pointgoal-il-aux'
+    project_name = 'pointgoal-td'
     wandb.init(project=project_name, config=config, name=config['run_name'],
             resume=True, id=str(hash(config['run_name'])))
     wandb.save(str(Path(wandb.run.dir) / '*.t7'))
@@ -148,15 +145,16 @@ if __name__ == '__main__':
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
-    # Aux model args.
-    parser.add_argument('--aux_model', type=Path, required=True)
+    # Aux model args. (pre-trained)
+    #parser.add_argument('--aux_model', type=Path, required=True)
 
     # Model args.
-    parser.add_argument('--resnet_model', default='resnet50')
+    parser.add_argument('--resnet_model', default='resnet18')
     parser.add_argument('--hidden_size', type=int, required=True)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--temporal_dim', type=int, required=True)
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Optimizer args.
@@ -165,7 +163,7 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'description']
+    keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'temporal_dim', 'description']
     run_name  = '_'.join(str(getattr(parsed, x)) for x in keys)
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
@@ -178,21 +176,21 @@ if __name__ == '__main__':
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
-            'aux_model': parsed.aux_model,
-            'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
+            #'aux_model': parsed.aux_model,
+            #'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
 
             'model_args': {
                 'resnet_model': parsed.resnet_model,
                 'hidden_size': parsed.hidden_size,
                 'action_dim': 3,
-                'goal_dim': 3
-                },
+                'temporal_dim': parsed.temporal_dim
+            },
 
             'data_args': {
                 'num_workers': 8,
                 'dataset_dir': parsed.dataset_dir,
                 'batch_size': parsed.batch_size,
-                'goal_fn': 'polar1'
+                'temporal_dim': parsed.temporal_dim
                 },
 
             'optimizer_args': {

@@ -95,11 +95,11 @@ def make_onehot(semantic, scene=None):
         floor = np.array([class_names['floor'], class_names['rug'],
             class_names['stair'], class_names['shower-stall'],
             class_names['basket']])
-    elif scene == 'apartment_2':
+    elif scene in ['apartment_1', 'apartment_2']:
         floor = np.array([class_names['floor'], class_names['rug']])
-    elif scene == 'frl_apartment_4':
+    elif scene.split('_')[0] == 'frl': #'frl_apartment_4':
         floor = np.array([class_names['floor'], class_names['rug'],
-            class_names['mat'], class_names['stair']])
+            class_names['mat']])#, class_names['stair']])
 
     onehot[..., 0] = torch.as_tensor(np.isin(classes, floor), dtype=torch.float)
     onehot[:,:80,:,0] = 0 # floor is never above the horizon
@@ -109,6 +109,7 @@ def make_onehot(semantic, scene=None):
 class HabitatDataset(torch.utils.data.Dataset):
     def __init__(self, episode_dir, goal_fn):
         self.episode_dir = episode_dir
+        self.scene = episode_dir.parents[1].stem.split('-')[1]
 
         with open(episode_dir / 'episode.csv', 'r') as f:
             measurements = f.readlines()[1:]
@@ -119,10 +120,6 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.actions = torch.LongTensor(x[:length, 0]) # cut before STOP
         """
         self.actions = torch.LongTensor(x[:-1, 0])
-
-        #self.rgb_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-        #self.depth_f = zarr.open(str(self.episode_dir / 'depth'), mode='r')
-        #self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
 
         self.r, self.t = x[:-1, 1], x[:-1, 2]
         self.goal = goal_fn(self.r, self.t)
@@ -135,5 +132,5 @@ class HabitatDataset(torch.utils.data.Dataset):
         if not hasattr(self, 'semantic_f'):
             self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
         # TODO: onehot semantic
-        return make_onehot(self.semantic_f[idx], scene='apartment_0')[0], self.goal[idx], self.actions[idx] - 1
+        return make_onehot(self.semantic_f[idx], scene=self.scene)[0], self.goal[idx], self.actions[idx] - 1
         #return torch.as_tensor(self.semantic_f[idx]), self.goal, self.actions[idx] - 1 # shift down

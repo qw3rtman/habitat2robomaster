@@ -94,7 +94,7 @@ class Rollout:
     def act(self, net=None, goal_fn=polar1):
         if net is not None:
             #rgb = torch.as_tensor(self.observations['rgb'], dtype=torch.float, device=self.device).unsqueeze(dim=0)
-            rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene='frl_apartment_4'), dtype=torch.float, device=self.device)
+            rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene=self.scenes), dtype=torch.float, device=self.device)
             r, t = self.observations['pointgoal_with_gps_compass']
             if np.sqrt(r**2+t**2) < 0.2: # hardcode STOP
                 return {'action': 0}
