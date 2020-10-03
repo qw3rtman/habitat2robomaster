@@ -11,7 +11,7 @@ import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
 from .model import InverseDynamics
-from .consecutive_dataset import get_dataset
+from .pair_dataset import get_dataset
 
 import wandb
 

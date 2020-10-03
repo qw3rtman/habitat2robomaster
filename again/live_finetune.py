@@ -20,28 +20,15 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', type=int, required=True)
     parser.add_argument('--scene', required=True)
     parser.add_argument('--split', required=True)
-    parser.add_argument('--aux_model', type=Path)
     parsed = parser.parse_args()
 
     config = yaml.load((parsed.model.parent / 'config.yaml').read_text())
     run_name = f"{config['run_name']['value']}-model_{parsed.epoch:03}-{parsed.split}"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    """ normal
-    net = PointGoalPolicy(**config['model_args']['value']).to(device)
-    net.load_state_dict(torch.load(parsed.model, map_location=device))
-    net.eval()
-    """
-
-    if parsed.aux_model is not None:
-        aux_config = yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())
-        #aux_net = TemporalDistance(**aux_config['model_args']['value']).to(device)
-        aux_net = InverseDynamics(**aux_config['model_args']['value']).to(device)
-        aux_net.load_state_dict(torch.load(parsed.aux_model, map_location=device))
-
-    #aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
-    aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
-    aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
+    aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
+    #aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
+    #aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
 
     net = PointGoalPolicyAux(aux_net, **config['model_args']['value']).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))
@@ -58,7 +45,7 @@ if __name__ == '__main__':
     wandb.run.summary['episode'] = 0
     wandb.run.summary['step'] = 0
 
-    n = 25
+    n = 100
     success, spl, softspl = np.zeros(n), np.zeros(n), np.zeros(n)
     correct, total = 0, 0
     for ep in range(n):
@@ -72,30 +59,31 @@ if __name__ == '__main__':
             images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
             replay_buffer.insert(step['semantic'], step['action']['action'])
-            if i > 0 and i % 100 == 0:
-                net.aux.train()
-                for j, (t1, t2, _, distance) in enumerate(replay_buffer.get_dataset(iterations=int(50/np.sqrt(ep+1)), batch_size=min(len(replay_buffer)//2, 64), temporal_dim=1)):
-                    print(f'train loop {j}')
-                    t1 = t1.to(device)
-                    t2 = t2.to(device)
-                    distance = distance.to(device)
+            #if i > 0 and i % 100 == 0:
 
-                    _distance = net.aux(t1, t2).logits
-                    loss = criterion(_distance, distance)
-                    loss_mean = loss.mean()
+        net.aux.train()
+        for j, (t1, t2, _, distance) in enumerate(replay_buffer.get_dataset(iterations=int(50/np.sqrt(ep+1)), batch_size=128, temporal_dim=4)):
+            print(f'train loop {j}')
+            t1 = t1.to(device)
+            t2 = t2.to(device)
+            distance = distance.to(device)
 
-                    correct += (distance == _distance.argmax(dim=1)).sum().item()
-                    total += t1.shape[0]
+            _distance = net.aux(t1, t2).logits
+            loss = criterion(_distance, distance)
+            loss_mean = loss.mean()
 
-                    loss_mean.backward()
-                    optim.step()
-                    optim.zero_grad()
-                net.aux.eval()
+            correct += (distance == _distance.argmax(dim=1)).sum().item()
+            total += t1.shape[0]
 
-                """
-                wandb.run.summary['step'] += 1
-                wandb.log({'loss': loss_mean.item()}, step=wandb.run.summary['step'])
-                """
+            loss_mean.backward()
+            optim.step()
+            optim.zero_grad()
+        net.aux.eval()
+
+        """
+        wandb.run.summary['step'] += 1
+        wandb.log({'loss': loss_mean.item()}, step=wandb.run.summary['step'])
+        """
 
         wandb.log({'accuracy': correct/total if total > 0 else 0}, step=wandb.run.summary['episode'])
 
