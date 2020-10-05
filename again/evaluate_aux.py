@@ -26,8 +26,8 @@ if __name__ == '__main__':
     run_name = f"{config['run_name']['value']}-model_{parsed.epoch:03}-{parsed.split}"
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
-    #aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
+    #aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
+    aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
     #aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
 
     net = PointGoalPolicyAux(aux_net, **config['model_args']['value']).to(device)
@@ -41,11 +41,13 @@ if __name__ == '__main__':
     env = Rollout(shuffle=True, split='val', dataset='replica', scenes=parsed.scene)
     replay_buffer = ReplayBuffer(parsed.scene)
 
-    wandb.init(project='pointgoal-il-live-finetune-eval', name=run_name, config=config)
+    wandb.init(project='pointgoal-il-eval-aux', name=run_name, config=config)
     wandb.run.summary['episode'] = 0
     wandb.run.summary['step'] = 0
 
-    n = 100
+    k = 5 # number of episodes to imitate
+
+    n = 100 + k
     success, spl, softspl = np.zeros(n), np.zeros(n), np.zeros(n)
     correct, total = 0, 0
     for ep in range(n):
@@ -53,7 +55,7 @@ if __name__ == '__main__':
         replay_buffer.new_episode()
         images = []
 
-        for i, step in enumerate(env.rollout(net=net, goal_fn=polar1)):
+        for i, step in enumerate(env.rollout(net=(net if ep > k else None), goal_fn=polar1)):
             print(f'step {i}')
             frame = Image.fromarray(step['rgb'])
             images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
@@ -62,12 +64,15 @@ if __name__ == '__main__':
             replay_buffer.insert(step['rgb'], step['action']['action'])
             #if i > 0 and i % 100 == 0:
 
+        #if ep <= k:
         loss_mean = None
         net.aux.train()
+        for param in net.aux.parameters():
+            param.requires_grad = True
 
-        #n = int(50/np.sqrt(100-ep))
-        iterations = int(max(25*np.log(ep+1), 5))
-        for j, (t1, t2, action, distance) in enumerate(replay_buffer.get_dataset(iterations=iterations, batch_size=min(len(replay_buffer)-1, 128), temporal_dim=4)): # NOTE: change based il or td
+        iterations = int(100/np.sqrt(ep+1)) # decreasing; fit to first few good ones
+        #iterations = int(max(25*np.log(ep+1), 5))
+        for j, (t1, t2, action, distance) in enumerate(replay_buffer.get_dataset(iterations=iterations, batch_size=min(len(replay_buffer)-1, 32), temporal_dim=1)): # NOTE: change based il or td
             print(f'train loop {j}')
             t1 = t1.to(device)
             t2 = t2.to(device)
@@ -75,37 +80,40 @@ if __name__ == '__main__':
             distance = distance.to(device)
 
             _distance = net.aux(t1, t2).logits
-            loss = criterion(_distance, distance)
-            #loss = criterion(_distance, action)
+            #loss = criterion(_distance, distance)
+            loss = criterion(_distance, action)
             loss_mean = loss.mean()
 
-            correct += (distance == _distance.argmax(dim=1)).sum().item()
-            #correct += (action == _distance.argmax(dim=1)).sum().item()
+            #correct += (distance == _distance.argmax(dim=1)).sum().item()
+            correct += (action == _distance.argmax(dim=1)).sum().item()
             total += t1.shape[0]
 
             loss_mean.backward()
             optim.step()
             optim.zero_grad()
         net.aux.eval()
+        for param in net.aux.parameters():
+            param.requires_grad = False
 
+        wandb.run.summary['episode'] += 1
         wandb.log({
             'accuracy': correct/total if total > 0 else 0,
             'loss': loss_mean.item()
         }, step=wandb.run.summary['episode'])
 
-        metrics = env.env.get_metrics()
-        success[ep] = metrics['success']
-        spl[ep] = metrics['spl']
-        softspl[ep] = metrics['softspl']
+        if ep >= k:
+            metrics = env.env.get_metrics()
+            success[ep-k] = metrics['success']
+            spl[ep-k] = metrics['spl']
+            softspl[ep-k] = metrics['softspl']
 
-        log = {
-            f'{parsed.scene}_video': wandb.Video(np.array(images), fps=60, format='mp4'),
-            'success_mean': success[:ep+1].mean(),
-            'spl_mean': spl[:ep+1].mean(),
-            'softspl_mean': softspl[:ep+1].mean()
-        }
+            log = {
+                f'{parsed.scene}_video': wandb.Video(np.array(images), fps=60, format='mp4'),
+                'success_mean': success[:ep-k+1].mean(),
+                'spl_mean': spl[:ep-k+1].mean(),
+                'softspl_mean': softspl[:ep-k+1].mean()
+            }
 
-        wandb.run.summary['episode'] += 1
-        wandb.log(
-                {('%s/%s' % ('val', k)): v for k, v in log.items()},
-                step=wandb.run.summary['episode'])
+            wandb.log(
+                    {('%s/%s' % ('val', k)): v for k, v in log.items()},
+                    step=wandb.run.summary['episode'])

@@ -53,7 +53,7 @@ def train_or_eval(net, data, optim, is_train, config):
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (t1, t2, action) in enumerate(iterator):
+    for i, (t1, t2, action, _) in enumerate(iterator):
         t1 = t1.to(config['device'])
         t2 = t2.to(config['device'])
         action = action.to(config['device'])
@@ -101,10 +101,12 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config):
+    """
     net = InverseDynamics(**config['aux_model_args']).to(config['device'])
     net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
+    """
 
-    #net = InverseDynamics(**config['model_args']).to(config['device'])
+    net = InverseDynamics(**config['model_args']).to(config['device'])
 
     data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
@@ -135,7 +137,7 @@ def main(config):
             wandb.run.summary['best_epoch'] = epoch
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 1 == 0:
+        if epoch % 10 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 
@@ -146,7 +148,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
     # Aux model args. (pre-trained)
-    parser.add_argument('--aux_model', type=Path, required=True)
+    #parser.add_argument('--aux_model', type=Path, required=True)
 
     # Model args.
     parser.add_argument('--resnet_model', default='resnet18')
@@ -175,8 +177,8 @@ if __name__ == '__main__':
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
-            'aux_model': parsed.aux_model,
-            'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
+            #'aux_model': parsed.aux_model,
+            #'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
 
             'model_args': {
                 'resnet_model': parsed.resnet_model,

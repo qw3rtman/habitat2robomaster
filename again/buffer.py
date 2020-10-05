@@ -20,10 +20,13 @@ class PairDataset(torch.utils.data.Dataset):
         if idx+t > len(self)-1:
             t = len(self)-idx
 
+        """
         t1, t2 = make_onehot(np.stack([
             self.frames[idx], self.frames[idx+t]
         ]), scene=self.scene)
+        """
 
+        t1, t2 = self.frames[idx], self.frames[idx+t]
         return t1, t2, self.actions[idx]-1, t-1
 
 
@@ -46,7 +49,7 @@ class ReplayBuffer():
     def new_episode(self):
         if len(self.frames) > 0:
             self.frames[-1] = self.frames[-1][:self.length]
-        self.frames.append(np.empty((500, 160, 384), dtype=np.uint8))
+        self.frames.append(np.empty((500, 160, 384, 3), dtype=np.uint8))
 
         self.actions.append([])
 

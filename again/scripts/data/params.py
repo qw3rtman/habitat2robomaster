@@ -5,12 +5,12 @@ import argparse
 wandb_root = Path('/scratch/cluster/nimit/wandb')
 
 jobs = list()
-for scene in ['office_0', 'office_4']:
+for scene in ['frl_apartment_4']:
     job = f"""python -m again.collect_dataset \\
         --dataset replica \\
         --scene {scene} \\
-        --split val \\
-        --num_episodes 1000 \\
+        --split train \\
+        --num_episodes 100 \\
         --dataset_dir /scratch/cluster/nimit/data/habitat/replica-{scene}
     """
 

@@ -102,6 +102,7 @@ def checkpoint_project(net, optim, scheduler, config):
 def main(config):
     # NOTE: loading aux task
     aux_net = InverseDynamics(**config['aux_model_args']).to(config['device'])
+    #aux_net = TemporalDistance(**config['aux_model_args']).to(config['device'])
     aux_net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
     aux_net.eval() # NOTE: does this freeze the weights?
 

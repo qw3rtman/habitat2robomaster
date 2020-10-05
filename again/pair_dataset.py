@@ -56,16 +56,18 @@ class PairDataset(torch.utils.data.Dataset):
         return self.actions.shape[0]-1
 
     def __getitem__(self, idx):
-        if not hasattr(self, 'semantic_f'):
-            #self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r') # hack...
-            self.semantic_f = zarr.open(str(self.episode_dir / 'semantic'), mode='r')
+        if not hasattr(self, 'input_f'):
+            self.input_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
 
         t = np.random.randint(self.t_min, self.t_max)
         if idx+t > len(self)-1:
             t = len(self)-idx
 
+        """
         t1, t2 = make_onehot(np.stack([
             self.semantic_f[idx], self.semantic_f[idx+t]
         ]), scene=self.scene)
+        """
 
+        t1, t2 = self.input_f[idx], self.input_f[idx+t]
         return t1, t2, self.actions[idx]-1, t-1

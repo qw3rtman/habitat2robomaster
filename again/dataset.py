@@ -129,8 +129,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         return self.actions.shape[0]
 
     def __getitem__(self, idx):
-        if not hasattr(self, 'semantic_f'):
-            self.semantic_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-        # TODO: onehot semantic
-        return make_onehot(self.semantic_f[idx], scene=self.scene)[0], self.goal[idx], self.actions[idx] - 1
-        #return torch.as_tensor(self.semantic_f[idx]), self.goal, self.actions[idx] - 1 # shift down
+        if not hasattr(self, 'target_f'):
+            self.target_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
+        return self.target_f[idx], self.goal[idx], self.actions[idx]-1
+        #return make_onehot(self.semantic_f[idx], scene=self.scene)[0], self.goal[idx], self.actions[idx]-1

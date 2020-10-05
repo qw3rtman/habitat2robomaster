@@ -55,7 +55,7 @@ class Rollout:
 
         config['NUM_PROCESSES'] = 4
 
-        sensors = ['RGB_SENSOR', 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
+        sensors = ['RGB_SENSOR', 'SEMANTIC_SENSOR', 'DEPTH_SENSOR']
         for sensor in sensors:
             config['SIMULATOR'][sensor].HEIGHT = 160 # 256
             config['SIMULATOR'][sensor].WIDTH  = 384 # 256
@@ -93,8 +93,8 @@ class Rollout:
 
     def act(self, net=None, goal_fn=polar1):
         if net is not None:
-            #rgb = torch.as_tensor(self.observations['rgb'], dtype=torch.float, device=self.device).unsqueeze(dim=0)
-            rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene=self.scenes), dtype=torch.float, device=self.device)
+            rgb = torch.as_tensor(self.observations['rgb'], dtype=torch.float, device=self.device).unsqueeze(dim=0)
+            #rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene=self.scenes), dtype=torch.float, device=self.device)
             r, t = self.observations['pointgoal_with_gps_compass']
             if np.sqrt(r**2+t**2) < 0.2: # hardcode STOP
                 return {'action': 0}
@@ -175,8 +175,10 @@ def save_episode(env, episode_dir):
     z = zarr.open(str(episode_dir / 'rgb'), mode='w', shape=(len(rgb), *rgb[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(rgb)
 
-    #z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
-    #z[:] = np.array(depth)
+    """
+    z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
+    z[:] = np.array(depth)
+    """
 
     z = zarr.open(str(episode_dir / 'semantic'), mode='w', shape=(len(semantic), *semantic[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(semantic)

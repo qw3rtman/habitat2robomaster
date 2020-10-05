@@ -61,8 +61,14 @@ class InverseDynamics(nn.Module):
     def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, action_dim=3, **kwargs):
         super().__init__()
 
+        """
         observation_spaces = spaces.Dict({
             'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+        })
+        """
+
+        observation_spaces = spaces.Dict({
+            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
         })
 
         self.R1 = ResNetEncoder(
@@ -71,29 +77,13 @@ class InverseDynamics(nn.Module):
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
             normalize_visual_inputs=False,
-            input_channels=1)
+            input_channels=3) # NOTE: change
 
         self.visual_fc1 = nn.Sequential(
             Flatten(),
             #nn.Linear(np.prod(self.R1.output_shape), hidden_size),
             nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
-
-        """
-        self.R2 = ResNetEncoder(
-            observation_spaces,
-            baseplanes=resnet_baseplanes,
-            ngroups=resnet_baseplanes//2,
-            make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=False,
-            input_channels=1)
-
-        self.visual_fc2 = nn.Sequential(
-            Flatten(),
-            #nn.Linear(np.prod(self.R2.output_shape), hidden_size),
-            nn.Linear(2304, hidden_size), # hack
-            nn.ReLU(True))
-        """
 
         self.concat_fc = nn.Sequential(
             nn.Linear(2*hidden_size, hidden_size),
@@ -104,16 +94,22 @@ class InverseDynamics(nn.Module):
 
     def forward(self, rgb1, rgb2):
         return self.action_distribution(self.concat_fc(torch.cat([
-            self.visual_fc1(self.R1({'semantic': rgb1})),
-            self.visual_fc1(self.R1({'semantic': rgb2}))
+            self.visual_fc1(self.R1({'rgb': rgb1})),
+            self.visual_fc1(self.R1({'rgb': rgb2}))
         ], dim=1)))
 
 class TemporalDistance(nn.Module):
     def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, temporal_dim=3, **kwargs):
         super().__init__()
 
+        """
         observation_spaces = spaces.Dict({
             'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+        })
+        """
+
+        observation_spaces = spaces.Dict({
+            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
         })
 
         self.R1 = ResNetEncoder(
@@ -122,7 +118,7 @@ class TemporalDistance(nn.Module):
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
             normalize_visual_inputs=False,
-            input_channels=1)
+            input_channels=3) # NOTE: change
 
         self.visual_fc1 = nn.Sequential(
             Flatten(),
@@ -138,12 +134,12 @@ class TemporalDistance(nn.Module):
 
     def forward(self, rgb1, rgb2):
         return self.temporal_distribution(self.concat_fc(torch.cat([
-            self.visual_fc1(self.R1({'semantic': rgb1})),
-            self.visual_fc1(self.R1({'semantic': rgb2}))
+            self.visual_fc1(self.R1({'rgb': rgb1})),
+            self.visual_fc1(self.R1({'rgb': rgb2}))
         ], dim=1)))
 
 class PointGoalPolicyAux(nn.Module): # Auxiliary task
-    def __init__(self, aux_model, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=128, action_dim=3, goal_dim=3, **kwargs):
+    def __init__(self, aux_model, hidden_size=128, action_dim=3, goal_dim=3, **kwargs):
         super().__init__()
 
         self.aux = aux_model
@@ -159,7 +155,7 @@ class PointGoalPolicyAux(nn.Module): # Auxiliary task
 
     def forward(self, rgb, goal):
         features = torch.cat([
-            self.aux.visual_fc1(self.aux.R1({'semantic': rgb})),
+            self.aux.visual_fc1(self.aux.R1({'rgb': rgb})),
             self.goal_fc(goal)
         ], dim=1)
 
