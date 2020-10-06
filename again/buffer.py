@@ -42,7 +42,8 @@ class ReplayBuffer():
     def get_dataset(self, iterations=50, batch_size=128, num_workers=0, temporal_dim=1):
         data = [PairDataset(frames[:self.length] if i == len(self.frames)-1 else frames, \
                             actions, self.scene, temporal_dim=temporal_dim) \
-            for i, (frames, actions) in enumerate(zip(self.frames, self.actions))]
+            for i, (frames, actions) in enumerate(zip(self.frames, self.actions)) \
+        if len(actions) > 0]
 
         return Wrap(data, batch_size, iterations, num_workers)
 

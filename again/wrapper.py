@@ -96,7 +96,7 @@ class Rollout:
             rgb = torch.as_tensor(self.observations['rgb'], dtype=torch.float, device=self.device).unsqueeze(dim=0)
             #rgb = torch.as_tensor(make_onehot(np.uint8(self.observations['semantic']), scene=self.scenes), dtype=torch.float, device=self.device)
             r, t = self.observations['pointgoal_with_gps_compass']
-            if np.sqrt(r**2+t**2) < 0.2: # hardcode STOP
+            if r < 0.2: # hardcode STOP
                 return {'action': 0}
             goal = goal_fn(r, t).to(self.device).reshape(1, -1)
 

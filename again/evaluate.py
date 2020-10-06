@@ -7,7 +7,7 @@ import numpy as np
 import yaml
 from PIL import Image, ImageDraw, ImageFont
 
-from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux
+from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, SceneLocalization, PointGoalPolicyAux
 from .wrapper import Rollout
 from .dataset import polar1, polar2, rff
 
@@ -39,7 +39,8 @@ if __name__ == '__main__':
         aux_net.load_state_dict(torch.load(parsed.aux_model, map_location=device))
 
     #aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
-    aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
+    #aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
+    aux_net = SceneLocalization(**config['aux_model_args']['value']).to(device)
     #aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
 
     net = PointGoalPolicyAux(aux_net, **config['model_args']['value']).to(device)

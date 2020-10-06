@@ -96,7 +96,7 @@ class InverseDynamics(nn.Module):
         return self.action_distribution(self.concat_fc(torch.cat([
             self.visual_fc1(self.R1({'rgb': rgb1})),
             self.visual_fc1(self.R1({'rgb': rgb2}))
-        ], dim=1)))
+        ], dim=1)))#.logits
 
 class TemporalDistance(nn.Module):
     def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, temporal_dim=3, **kwargs):
@@ -137,6 +137,35 @@ class TemporalDistance(nn.Module):
             self.visual_fc1(self.R1({'rgb': rgb1})),
             self.visual_fc1(self.R1({'rgb': rgb2}))
         ], dim=1)))
+
+class SceneLocalization(nn.Module):
+    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, **kwargs):
+        super().__init__()
+
+        observation_spaces = spaces.Dict({
+            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+        })
+
+        self.R1 = ResNetEncoder(
+            observation_spaces,
+            baseplanes=resnet_baseplanes,
+            ngroups=resnet_baseplanes//2,
+            make_backbone=getattr(resnet, resnet_model),
+            normalize_visual_inputs=False,
+            input_channels=3) # NOTE: change
+
+        self.visual_fc1 = nn.Sequential(
+            Flatten(),
+            nn.Linear(2304, hidden_size), # hack
+            nn.ReLU(True))
+
+        self.localization_fc = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size//2),
+            nn.ReLU(True),
+            nn.Linear(hidden_size//2, 2))
+
+    def forward(self, rgb):
+        return self.localization_fc(self.visual_fc1(self.R1({'rgb': rgb})))
 
 class PointGoalPolicyAux(nn.Module): # Auxiliary task
     def __init__(self, aux_model, hidden_size=128, action_dim=3, goal_dim=3, **kwargs):

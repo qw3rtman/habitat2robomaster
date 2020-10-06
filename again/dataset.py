@@ -120,6 +120,7 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.actions = torch.LongTensor(x[:length, 0]) # cut before STOP
         """
         self.actions = torch.LongTensor(x[:-1, 0])
+        self.xy = torch.FloatTensor(x[:-1,[3,5]])
 
         self.r, self.t = x[:-1, 1], x[:-1, 2]
         self.goal = goal_fn(self.r, self.t)
@@ -131,5 +132,5 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         if not hasattr(self, 'target_f'):
             self.target_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-        return self.target_f[idx], self.goal[idx], self.actions[idx]-1
+        return self.target_f[idx], self.goal[idx], self.actions[idx]-1, self.xy[idx]
         #return make_onehot(self.semantic_f[idx], scene=self.scene)[0], self.goal[idx], self.actions[idx]-1
