@@ -36,7 +36,7 @@ def get_dataset(dataset_dir, batch_size=128, num_workers=0, temporal_dim=1, **kw
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
         # 1000, 100
-        return Wrap(data, batch_size, 250 if is_train else 25, num_workers)
+        return Wrap(data, batch_size, 25 if is_train else 5, num_workers)
 
     return make_dataset(True), make_dataset(False)
 

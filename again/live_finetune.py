@@ -36,7 +36,8 @@ if __name__ == '__main__':
     net.eval()
 
     # NOTE: we are finetuning this part
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+    #criterion = torch.nn.CrossEntropyLoss(reduction='none') # ID/TD
+    criterion = torch.nn.MSELoss(reduction='mean') # SL
     optim = torch.optim.Adam(net.aux.parameters(), lr=2e-4, weight_decay=3.8e-7)
 
     env = Rollout(shuffle=True, split='val', dataset='replica', scenes=parsed.scene)
@@ -60,14 +61,27 @@ if __name__ == '__main__':
             images.append(np.transpose(np.uint8(frame), (2, 0, 1)))
 
             #replay_buffer.insert(step['semantic'], step['action']['action'])
-            replay_buffer.insert(step['rgb'], step['action']['action'])
+            replay_buffer.insert(step['rgb'], step['position'][[0,2]], step['action']['action'])
             #if i > 0 and i % 100 == 0:
 
         loss_mean = None
         net.aux.train()
 
-        #n = int(50/np.sqrt(100-ep))
-        iterations = int(max(25*np.log(ep+1), 5))
+        iterations = int(50/np.sqrt(100-ep))
+        #iterations = int(max(25*np.log(ep+1), 5))
+        for j, (rgb, xy, action) in enumerate(replay_buffer.get_dataset(iterations=iterations, batch_size=min(len(replay_buffer)-1, 128))):
+            print(f'train loop {j}')
+            rgb = rgb.to(device)
+            xy = xy.to(device)
+
+            _xy = net.aux(rgb)
+            loss_mean = criterion(_xy, xy).mean()
+
+            loss_mean.backward()
+            optim.step()
+            optim.zero_grad()
+
+        """ PAIR DATASET
         for j, (t1, t2, action, distance) in enumerate(replay_buffer.get_dataset(iterations=iterations, batch_size=min(len(replay_buffer)-1, 128), temporal_dim=4)): # NOTE: change based il or td
             print(f'train loop {j}')
             t1 = t1.to(device)
@@ -87,10 +101,11 @@ if __name__ == '__main__':
             loss_mean.backward()
             optim.step()
             optim.zero_grad()
+        """
         net.aux.eval()
 
         wandb.log({
-            'accuracy': correct/total if total > 0 else 0,
+            #'accuracy': correct/total if total > 0 else 0,
             'loss': loss_mean.item()
         }, step=wandb.run.summary['episode'])
 

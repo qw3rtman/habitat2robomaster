@@ -5,19 +5,20 @@ from datetime import datetime
 jobs = list()
 unique = datetime.now().strftime("%-m.%d")
 
-for batch_size in [16, 32]:
-    for hidden_size in [32, 64, 128]:
+for batch_size in [128, 256]: # can use big batch sizes here, not training a policy
+    for hidden_size in [256, 512]:
         for resnet_model in ['resnet18']:
             for lr in [2e-4]:
                 for weight_decay in [3.8e-7]:
                     job = f"""ulimit -n 4096; python -m again.train_sl \\
-    --description {unique}-apartment_0-rgb-single_encoder-v2 \\
+    --description {unique}-apartment_0-rgb-single_encoder-v2SMALL \\
     --max_epoch 200 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
     --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\
+    --dataset_size 0.01 \\
+    --batch_size {batch_size} \\
     --resnet_model {resnet_model} \\
     --hidden_size {hidden_size} \\
-    --batch_size {batch_size} \\
     --lr {lr} \\
     --weight_decay {weight_decay}
     """

@@ -137,6 +137,7 @@ if __name__ == '__main__':
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Optimizer args.
@@ -166,6 +167,7 @@ if __name__ == '__main__':
             'data_args': {
                 'num_workers': 8,
                 'dataset_dir': parsed.dataset_dir,
+                'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size
                 },
 

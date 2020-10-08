@@ -99,7 +99,7 @@ def checkpoint_project(net, optim, scheduler, config):
     torch.save(scheduler.state_dict(), config['checkpoint_dir'] / 'scheduler_latest.t7')
 
 
-def main(config):
+def main(config, parsed):
     # NOTE: loading aux task
     #aux_net = InverseDynamics(**config['aux_model_args']).to(config['device'])
     #aux_net = TemporalDistance(**config['aux_model_args']).to(config['device'])
@@ -127,7 +127,7 @@ def main(config):
         wandb.run.summary['epoch'] = 0
         wandb.run.summary['best_epoch'] = 0
 
-    for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
+    for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, parsed.max_epoch+1), desc='epoch'):
         wandb.run.summary['epoch'] = epoch
 
         loss_train = train_or_eval(net, data_train, optim, True, config)
@@ -203,4 +203,4 @@ if __name__ == '__main__':
                 }
             }
 
-    main(config)
+    main(config, parsed)

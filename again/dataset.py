@@ -47,12 +47,12 @@ class Wrap(object):
         return self.samples
 
 #memory = Memory('/scratch/cluster/nimit/data/cache', mmap_mode='r+', verbose=0)
-def get_dataset(dataset_dir, goal_fn='polar1', batch_size=128, num_workers=0, **kwargs):
+def get_dataset(dataset_dir, dataset_size=1.0, goal_fn='polar1', batch_size=128, num_workers=0, **kwargs):
 
     #@memory.cache
     def get_episodes(split_dir, goal_fn, dataset_size):
         episode_dirs = list(split_dir.iterdir())
-        num_episodes = int(max(1, dataset_size * len(episode_dirs)))
+        num_episodes = int(max(5, dataset_size * len(episode_dirs))) # at least 5 episodes for train/val
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
@@ -67,7 +67,7 @@ def get_dataset(dataset_dir, goal_fn='polar1', batch_size=128, num_workers=0, **
         split = 'train' if is_train else 'val'
 
         start = time.time()
-        data = get_episodes(Path(dataset_dir) / split, goal_fn, kwargs.get('dataset_size', 1.0))
+        data = get_episodes(Path(dataset_dir) / split, goal_fn, dataset_size)
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
         # 1000, 100
