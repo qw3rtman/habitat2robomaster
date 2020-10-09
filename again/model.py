@@ -8,6 +8,9 @@ from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from habitat_baselines.common.utils import CategoricalNet
 
+from .dataset import HEIGHT, WIDTH
+from .const import GIBSON_IDX2NAME
+
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
@@ -18,12 +21,12 @@ class PointGoalPolicy(nn.Module):
 
         """
         observation_spaces = spaces.Dict({
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            'rgb': spaces.Box(low=0, high=255, shape=(HEIGHT, WIDTH, 3), dtype=np.uint8)
         })
         """
 
         observation_spaces = spaces.Dict({
-            'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+            'semantic': spaces.Box(low=0, high=1, shape=(HEIGHT, WIDTH, 1), dtype=np.uint8)
         })
 
         self.visual_encoder = ResNetEncoder(
@@ -32,12 +35,12 @@ class PointGoalPolicy(nn.Module):
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
             normalize_visual_inputs='rgb' in observation_spaces.spaces,
-            input_channels=1)#3) # NOTE: change depending on input!!
+            input_channels=3 if 'rgb' in observation_spaces.spaces else 1)
 
         self.visual_fc = nn.Sequential(
             Flatten(),
-            #nn.Linear(np.prod(self.visual_encoder.output_shape), hidden_size),
-            nn.Linear(2304, hidden_size), # hack
+            nn.Linear(np.prod(self.visual_encoder.output_shape), hidden_size),
+            #nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
 
         self.goal_fc = nn.Linear(goal_dim, hidden_size)
@@ -63,12 +66,12 @@ class InverseDynamics(nn.Module):
 
         """
         observation_spaces = spaces.Dict({
-            'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+            'semantic': spaces.Box(low=0, high=1, shape=(HEIGHT, WIDTH, 1), dtype=np.uint8)
         })
         """
 
         observation_spaces = spaces.Dict({
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            'rgb': spaces.Box(low=0, high=255, shape=(HEIGHT, WIDTH, 3), dtype=np.uint8)
         })
 
         self.R1 = ResNetEncoder(
@@ -76,13 +79,13 @@ class InverseDynamics(nn.Module):
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=False,
-            input_channels=3) # NOTE: change
+            normalize_visual_inputs='rgb' in observation_spaces.spaces,
+            input_channels=3 if 'rgb' in observation_spaces.spaces else 1)
 
         self.visual_fc1 = nn.Sequential(
             Flatten(),
-            #nn.Linear(np.prod(self.R1.output_shape), hidden_size),
-            nn.Linear(2304, hidden_size), # hack
+            nn.Linear(np.prod(self.R1.output_shape), hidden_size),
+            #nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
 
         self.concat_fc = nn.Sequential(
@@ -104,12 +107,12 @@ class TemporalDistance(nn.Module):
 
         """
         observation_spaces = spaces.Dict({
-            'semantic': spaces.Box(low=0, high=1, shape=(256, 256, 1), dtype=np.uint8)
+            'semantic': spaces.Box(low=0, high=1, shape=(HEIGHT, WIDTH, 1), dtype=np.uint8)
         })
         """
 
         observation_spaces = spaces.Dict({
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            'rgb': spaces.Box(low=0, high=255, shape=(HEIGHT, WIDTH, 3), dtype=np.uint8)
         })
 
         self.R1 = ResNetEncoder(
@@ -117,12 +120,13 @@ class TemporalDistance(nn.Module):
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=False,
-            input_channels=3) # NOTE: change
+            normalize_visual_inputs='rgb' in observation_spaces.spaces,
+            input_channels=3 if 'rgb' in observation_spaces.spaces else 1)
 
         self.visual_fc1 = nn.Sequential(
             Flatten(),
-            nn.Linear(2304, hidden_size), # hack
+            nn.Linear(np.prod(self.R1.output_shape), hidden_size),
+            #nn.Linear(2304, hidden_size), # hack
             nn.ReLU(True))
 
         self.concat_fc = nn.Sequential(
@@ -143,7 +147,7 @@ class SceneLocalization(nn.Module):
         super().__init__()
 
         observation_spaces = spaces.Dict({
-            'rgb': spaces.Box(low=0, high=255, shape=(256, 256, 3), dtype=np.uint8)
+            'rgb': spaces.Box(low=0, high=255, shape=(HEIGHT, WIDTH, 3), dtype=np.uint8)
         })
 
         self.R1 = ResNetEncoder(
@@ -151,21 +155,33 @@ class SceneLocalization(nn.Module):
             baseplanes=resnet_baseplanes,
             ngroups=resnet_baseplanes//2,
             make_backbone=getattr(resnet, resnet_model),
-            normalize_visual_inputs=False,
-            input_channels=3) # NOTE: change
+            normalize_visual_inputs='rgb' in observation_spaces.spaces,
+            input_channels=3 if 'rgb' in observation_spaces.spaces else 1)
 
         self.visual_fc1 = nn.Sequential(
             Flatten(),
-            nn.Linear(2304, hidden_size), # hack
+            #nn.Linear(np.prod(self.R1.output_shape), hidden_size),
+            nn.Linear(7680, hidden_size), # hack
             nn.ReLU(True))
 
         self.localization_fc = nn.Sequential(
             nn.Linear(hidden_size, hidden_size//2),
-            nn.ReLU(True),
-            nn.Linear(hidden_size//2, 2))
+            nn.ReLU(True))
 
-    def forward(self, rgb):
-        return self.localization_fc(self.visual_fc1(self.R1({'rgb': rgb})))
+        self.scene_fc = nn.ModuleDict({
+            name: nn.Linear(hidden_size//2, 2) for name in GIBSON_IDX2NAME
+        })
+
+    def forward(self, rgb, scene_idx):
+        visual_features = self.visual_fc1(self.R1({'rgb': rgb}))
+        shared_features = self.localization_fc(visual_features)
+
+        out = torch.empty((rgb.shape[0], 2)).cuda()
+        for s in scene_idx.long().unique():
+            extract = self.scene_fc[GIBSON_IDX2NAME[s]]
+            out[scene_idx==s] = extract(shared_features[scene_idx==s])
+
+        return out
 
 class PointGoalPolicyAux(nn.Module): # Auxiliary task
     def __init__(self, aux_model, hidden_size=128, action_dim=3, goal_dim=3, **kwargs):

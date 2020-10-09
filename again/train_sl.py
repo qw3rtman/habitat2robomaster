@@ -1,6 +1,7 @@
 import argparse
 import time
 import yaml
+from collections import defaultdict
 
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .model import SceneLocalization
 from .dataset import get_dataset
+from .const import GIBSON_IDX2NAME
 
 import wandb
 
@@ -48,15 +50,17 @@ def train_or_eval(net, data, optim, is_train, config):
         net.eval()
 
     losses = list()
-    criterion = torch.nn.MSELoss(reduction='mean')
+    scene_losses = defaultdict(list)
+    criterion = torch.nn.MSELoss(reduction='none')
 
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (rgb, _, _, xy) in enumerate(iterator):
+    for i, (scene_idx, rgb, xy) in enumerate(iterator):
         rgb = rgb.to(config['device'])
         xy = xy.to(config['device'])
 
-        loss_mean = criterion(net(rgb), xy)
+        loss = criterion(net(rgb, scene_idx), xy)
+        loss_mean = loss.mean()
 
         if is_train:
             loss_mean.backward()
@@ -66,9 +70,14 @@ def train_or_eval(net, data, optim, is_train, config):
             wandb.run.summary['step'] += 1
 
         losses.append(loss_mean.item())
+        for j in range(len(scene_idx)):
+            scene_losses[GIBSON_IDX2NAME[scene_idx[j]]].append(loss[j].mean().item())
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
+        for scene, scene_loss in scene_losses.items():
+            metrics[f'{scene}_loss'] = np.mean(scene_loss)
+
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
@@ -121,7 +130,7 @@ def main(config):
             wandb.run.summary['best_epoch'] = epoch
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 10 == 0:
+        if epoch % 25 == 0:
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 

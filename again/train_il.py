@@ -52,7 +52,7 @@ def train_or_eval(net, data, optim, is_train, config):
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (rgb, goal, action, xy) in enumerate(iterator):
+    for i, (_, rgb, goal, action, xy) in enumerate(iterator):
         rgb = rgb.to(config['device'])
         goal = goal.to(config['device'])
         action = action.to(config['device'])
@@ -159,6 +159,7 @@ if __name__ == '__main__':
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
+    parser.add_argument('--dataset_size', type=float, default=1.0)
     parser.add_argument('--batch_size', type=int, default=128)
 
     # Optimizer args.
@@ -193,6 +194,7 @@ if __name__ == '__main__':
             'data_args': {
                 'num_workers': 8,
                 'dataset_dir': parsed.dataset_dir,
+                'dataset_size': parsed.dataset_size,
                 'batch_size': parsed.batch_size,
                 'goal_fn': 'polar1'
                 },

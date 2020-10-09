@@ -4,6 +4,7 @@ import pandas as pd
 from pyquaternion import Quaternion
 from numcodecs import Blosc
 import zarr
+from PIL import Image
 
 from pathlib import Path
 import random
@@ -21,7 +22,7 @@ from habitat_baselines.common.env_utils import construct_envs
 #from habitat_baselines.utils.env_utils import construct_envs
 from habitat_baselines.common.environments import get_env_class
 
-from .dataset import make_onehot, polar1
+from .dataset import make_onehot, polar1, HEIGHT, WIDTH
 
 CONFIGS = {
     'ddppo':      'configs/pointgoal/ddppo/val.yaml'
@@ -55,12 +56,12 @@ class Rollout:
 
         config['NUM_PROCESSES'] = 4
 
-        sensors = ['RGB_SENSOR', 'SEMANTIC_SENSOR', 'DEPTH_SENSOR']
+        sensors = ['RGB_SENSOR']#, 'DEPTH_SENSOR', 'SEMANTIC_SENSOR']
         for sensor in sensors:
-            config['SIMULATOR'][sensor].HEIGHT = 160 # 256
-            config['SIMULATOR'][sensor].WIDTH  = 384 # 256
+            config['SIMULATOR'][sensor].HEIGHT = HEIGHT # 160 # 256
+            config['SIMULATOR'][sensor].WIDTH  = WIDTH # 384 # 256
             config['SIMULATOR'][sensor].HFOV   = 120 # 90
-            config['SIMULATOR'][sensor].POSITION = [0.0, 0.25, 0.0] # 1.5
+            config['SIMULATOR'][sensor].POSITION = [0.0, 0.235, 0.0] # 1.5
 
         config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle # NOTE: not working?
         config.SENSORS                              = sensors
@@ -133,8 +134,8 @@ class Rollout:
                     'position': self.state.position,
                     'rotation': self.state.rotation.components,
                     'rgb': self.observations['rgb'],
-                    'depth': self.observations['depth'],
-                    'semantic': self.observations['semantic'],
+                    #'depth': self.observations['depth'],
+                    #'semantic': self.observations['semantic'],
                     'compass_r': self.observations['pointgoal_with_gps_compass'][0],
                     'compass_t': self.observations['pointgoal_with_gps_compass'][1]
                 }
@@ -146,7 +147,7 @@ class Rollout:
             self.step(action)
             self.i += 1
 
-
+"""
 def save_episode(env, episode_dir):
     rgb, depth, semantic, stats = [], [], [], []
     for i, step in enumerate(env.rollout()):
@@ -175,10 +176,33 @@ def save_episode(env, episode_dir):
     z = zarr.open(str(episode_dir / 'rgb'), mode='w', shape=(len(rgb), *rgb[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(rgb)
 
-    """
-    z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
-    z[:] = np.array(depth)
-    """
+    #z = zarr.open(str(episode_dir / 'depth'), mode='w', shape=(len(depth), *depth[0].shape), chunks=False, dtype='f', compressor=compressor)
+    #z[:] = np.array(depth)
 
     z = zarr.open(str(episode_dir / 'semantic'), mode='w', shape=(len(semantic), *semantic[0].shape), chunks=False, dtype='u1', compressor=compressor)
     z[:] = np.array(semantic)
+"""
+
+def save_episode(env, episode_dir):
+    episode_dir.mkdir(parents=True, exist_ok=True)
+
+    stats = []
+    for i, step in enumerate(env.rollout()):
+        Image.fromarray(step['rgb']).save(episode_dir/f'rgb_{i:03}.png')
+
+        stats.append({
+            'action': step['action']['action'],
+            'compass_r': step['compass_r'],
+            'compass_t': step['compass_t'],
+            'x': step['position'][0],
+            'y': step['position'][1],
+            'z': step['position'][2],
+            'i': step['rotation'][0],
+            'j': step['rotation'][1],
+            'k': step['rotation'][2],
+            'l': step['rotation'][3]
+        })
+
+    pd.DataFrame(stats).to_csv(episode_dir / 'episode.csv', index=False)
+
+    episode_dir.rename(episode_dir.parent/f'{episode_dir.stem}-{len(stats)}')

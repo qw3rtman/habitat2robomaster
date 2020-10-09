@@ -14,7 +14,8 @@ def generate_samples(parsed):
     env = Rollout(shuffle=True, split=parsed.split, dataset=parsed.dataset, scenes=parsed.scene)
 
     success, spl, softspl = [], [], []
-    for ep in range(parsed.num_episodes):
+    n = len(list(parsed.dataset_dir.iterdir()))
+    for ep in range(n, parsed.num_episodes):
         print(f'[!] Start {parsed.scene} ({ep})')
         save_episode(env, parsed.dataset_dir / f'{ep:06}')
 
