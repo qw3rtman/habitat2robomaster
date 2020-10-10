@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, SceneLocalization, PointGoalPolicyAux
 from .wrapper import Rollout
-from .dataset import polar1, polar2, rff
+from .pointgoal_dataset import polar1, polar2, rff
 
 ACTIONS = ['F', 'L', 'R']
 
@@ -55,6 +55,7 @@ if __name__ == '__main__':
     wandb.run.summary['model'] = f'{str(parsed.model)}-{parsed.epoch:03}'
     wandb.run.summary['dataset'] = parsed.dataset
     wandb.run.summary['scene'] = parsed.scene
+    wandb.run.summary['split'] = parsed.split
     wandb.run.summary['episode'] = 0
 
     n = 100

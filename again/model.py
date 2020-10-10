@@ -8,7 +8,7 @@ from habitat_baselines.rl.ddppo.policy import resnet
 from habitat_baselines.rl.ddppo.policy.resnet_policy import ResNetEncoder
 from habitat_baselines.common.utils import CategoricalNet
 
-from .dataset import HEIGHT, WIDTH
+from .pointgoal_dataset import HEIGHT, WIDTH
 from .const import GIBSON_IDX2NAME
 
 class Flatten(nn.Module):
@@ -143,7 +143,7 @@ class TemporalDistance(nn.Module):
         ], dim=1)))
 
 class SceneLocalization(nn.Module):
-    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, **kwargs):
+    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, scene_bias=True, **kwargs):
         super().__init__()
 
         observation_spaces = spaces.Dict({
@@ -169,7 +169,7 @@ class SceneLocalization(nn.Module):
             nn.ReLU(True))
 
         self.scene_fc = nn.ModuleDict({
-            name: nn.Linear(hidden_size//2, 2) for name in GIBSON_IDX2NAME
+            name: nn.Linear(hidden_size//2, 2, bias=scene_bias) for name in GIBSON_IDX2NAME
         })
 
     def forward(self, rgb, scene_idx):
@@ -189,10 +189,10 @@ class PointGoalPolicyAux(nn.Module): # Auxiliary task
 
         self.aux = aux_model
 
-        self.goal_fc = nn.Linear(goal_dim, hidden_size)
+        self.goal_fc = nn.Linear(goal_dim, hidden_size//2)
 
         self.concat_fc = nn.Sequential(
-            nn.Linear(2*hidden_size, hidden_size),
+            nn.Linear(hidden_size, hidden_size),
             nn.ReLU(True),
             nn.Linear(hidden_size, hidden_size//2))
 
@@ -200,7 +200,7 @@ class PointGoalPolicyAux(nn.Module): # Auxiliary task
 
     def forward(self, rgb, goal):
         features = torch.cat([
-            self.aux.visual_fc1(self.aux.R1({'rgb': rgb})),
+            self.aux.localization_fc(self.aux.visual_fc1(self.aux.R1({'rgb': rgb}))),
             self.goal_fc(goal)
         ], dim=1)
 

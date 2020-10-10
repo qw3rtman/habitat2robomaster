@@ -4,7 +4,7 @@ from joblib import Memory
 import zarr
 import pandas as pd
 
-from .dataset import Wrap, make_onehot
+from .pointgoal_dataset import Wrap, make_onehot
 
 from pathlib import Path
 import time

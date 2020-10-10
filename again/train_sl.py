@@ -12,7 +12,7 @@ import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
 from .model import SceneLocalization
-from .dataset import get_dataset
+from .localization_dataset import get_dataset
 from .const import GIBSON_IDX2NAME
 
 import wandb
@@ -55,11 +55,11 @@ def train_or_eval(net, data, optim, is_train, config):
 
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (scene_idx, rgb, xy) in enumerate(iterator):
+    for i, (scene_idx, rgb, localization) in enumerate(iterator):
         rgb = rgb.to(config['device'])
-        xy = xy.to(config['device'])
+        localization = localization.to(config['device'])
 
-        loss = criterion(net(rgb, scene_idx), xy)
+        loss = criterion(net(rgb, scene_idx), localization)
         loss_mean = loss.mean()
 
         if is_train:
@@ -143,6 +143,7 @@ if __name__ == '__main__':
     # Model args.
     parser.add_argument('--resnet_model', default='resnet18')
     parser.add_argument('--hidden_size', type=int, required=True)
+    parser.add_argument('--scene_bias', action='store_true', default=False)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -156,7 +157,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'description']
-    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys)
+    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys) + '_' + ('no-bias' if not parsed.scene_bias else '')
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -170,7 +171,8 @@ if __name__ == '__main__':
 
             'model_args': {
                 'resnet_model': parsed.resnet_model,
-                'hidden_size': parsed.hidden_size
+                'hidden_size': parsed.hidden_size,
+                'scene_bias': parsed.scene_bias
             },
 
             'data_args': {

@@ -22,7 +22,7 @@ from habitat_baselines.common.env_utils import construct_envs
 #from habitat_baselines.utils.env_utils import construct_envs
 from habitat_baselines.common.environments import get_env_class
 
-from .dataset import make_onehot, polar1, HEIGHT, WIDTH
+from .pointgoal_dataset import make_onehot, polar1, HEIGHT, WIDTH
 
 CONFIGS = {
     'ddppo':      'configs/pointgoal/ddppo/val.yaml'

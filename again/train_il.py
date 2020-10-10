@@ -12,7 +12,7 @@ import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
 from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux, SceneLocalization
-from .dataset import get_dataset
+from .pointgoal_dataset import get_dataset
 from .const import GIBSON_IDX2NAME
 
 import wandb

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from .dataset import Wrap, make_onehot
+from .pointgoal_dataset import Wrap, make_onehot
 
 
 class SingleDataset(torch.utils.data.Dataset):

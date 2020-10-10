@@ -61,7 +61,7 @@ def get_dataset(dataset_dir, dataset_size=1.0, goal_fn='polar1', batch_size=128,
 
         data = []
         for i, episode_dir in enumerate(episode_dirs[:num_episodes]):
-            data.append(HabitatDataset(episode_dir.resolve(), globals()[goal_fn]))
+            data.append(PointGoalDataset(episode_dir.resolve(), globals()[goal_fn]))
 
             if i % 100 == 0:
                 print(f'[{i:05}/{num_episodes}]')
@@ -75,8 +75,7 @@ def get_dataset(dataset_dir, dataset_size=1.0, goal_fn='polar1', batch_size=128,
         data = get_episodes(Path(dataset_dir) / split, goal_fn, dataset_size)
         print(f'{split}: {len(data)} episodes in {time.time()-start:.2f}s')
 
-        # 1000, 100
-        return Wrap(data, batch_size, 250 if is_train else 25, num_workers)
+        return Wrap(data, batch_size, 1000 if is_train else 100, num_workers)
 
     return make_dataset(True), make_dataset(False)
 
@@ -111,7 +110,7 @@ def make_onehot(semantic, scene=None):
 
     return onehot
 
-class HabitatDataset(torch.utils.data.Dataset):
+class PointGoalDataset(torch.utils.data.Dataset):
     def __init__(self, episode_dir, goal_fn):
         self.episode_dir = episode_dir
         self.scene_idx = GIBSON_NAME2IDX[episode_dir.parents[1].stem.split('-')[1]] # dataset-scene
@@ -126,24 +125,17 @@ class HabitatDataset(torch.utils.data.Dataset):
     def __len__(self):
         # TODO: remove STOP when training policy, but
         #       keep for aux tasks, ~100k extra samples
-        return int(self.episode_dir.stem.split('-')[1])-1 # -1
+        return int(self.episode_dir.stem.split('-')[1]) - 1
 
     def __getitem__(self, idx):
         if not hasattr(self, 'actions'):
-        #if not hasattr(self, 'xy'):
             with open(self.episode_dir / 'episode.csv', 'r') as f:
                 x = np.genfromtxt(f.readlines()[1:], delimiter=',', dtype=np.float32).reshape(-1, 10)
-            self.xy = torch.FloatTensor(x[:-1,[3,5]]) # -1
-            self.actions = torch.LongTensor(x[:-1, 0]) # -1
+            self.actions = torch.LongTensor(x[:-1, 0])
             self.r, self.t = x[:-1, 1], x[:-1, 2]
             self.goal = self.goal_fn(self.r, self.t)
 
         target = np.array(Image.open(self.episode_dir/f'rgb_{idx:03}.png'))
-
         return self.scene_idx, target, self.goal[idx], self.actions[idx]-1
-        #return self.scene_idx, target, self.xy[idx]
-        """
-        if not hasattr(self, 'target_f'):
-            self.target_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
-        """
+
         #return make_onehot(self.semantic_f[idx], scene=self.scene)[0], self.goal[idx], self.actions[idx]-1

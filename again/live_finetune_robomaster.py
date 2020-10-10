@@ -9,7 +9,7 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 
 from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux
-from .dataset import polar1, polar2, rff
+from .pointgoal_dataset import polar1, polar2, rff
 from .buffer import ReplayBuffer
 
 from ipaddress import ip_address
