@@ -12,10 +12,10 @@ for dataset_size in [1.0]:
                 for lr in [2e-4]:
                     for weight_decay in [3.8e-7]:
                         job = f"""ulimit -n 4096; PYTHONHASHSEED=0 python -m again.train_sl \\
-    --description {unique}-gibson-rgb-single_encoder-v5TEST \\
+    --description {unique}-gibson-rgb-single_encoder-v7 \\
     --max_epoch 2000 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/testing \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/gibson \\
     --dataset_size {dataset_size} \\
     --batch_size {batch_size} \\
     --resnet_model {resnet_model} \\
