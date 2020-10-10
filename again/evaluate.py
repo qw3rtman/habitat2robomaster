@@ -17,8 +17,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=Path, required=True)
     parser.add_argument('--epoch', type=int, required=True)
-    parser.add_argument('--dataset') # override's config.yaml
-    parser.add_argument('--scene')   # ^^^
+    parser.add_argument('--dataset', required=True)
+    parser.add_argument('--scene', required=True)
     parser.add_argument('--split', required=True)
     parser.add_argument('--aux_model', type=Path)
     parsed = parser.parse_args()
@@ -47,9 +47,14 @@ if __name__ == '__main__':
     net.load_state_dict(torch.load(parsed.model, map_location=device))
     net.eval()
 
-    env = Rollout(shuffle=True, split='val', dataset='replica', scenes=parsed.scene)
+    env = Rollout(shuffle=True, split=parsed.split, dataset=parsed.dataset, scenes=parsed.scene)
 
     wandb.init(project='pointgoal-il-eval', name=run_name, config=config)
+    wandb.run.summary['model_path'] = str(parsed.model)
+    wandb.run.summary['model_epoch'] = parsed.epoch
+    wandb.run.summary['model'] = f'{str(parsed.model)}-{parsed.epoch:03}'
+    wandb.run.summary['dataset'] = parsed.dataset
+    wandb.run.summary['scene'] = parsed.scene
     wandb.run.summary['episode'] = 0
 
     n = 100
