@@ -1,6 +1,7 @@
 import argparse
 import time
 import yaml
+from collections import defaultdict
 
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux, SceneLocalization
 from .dataset import get_dataset
+from .const import GIBSON_IDX2NAME
 
 import wandb
 
@@ -47,12 +49,13 @@ def train_or_eval(net, data, optim, is_train, config):
         net.eval()
 
     losses = list()
+    scene_correct, scene_total = np.zeros(len(GIBSON_IDX2NAME)), np.zeros(len(GIBSON_IDX2NAME))
     criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (_, rgb, goal, action, xy) in enumerate(iterator):
+    for i, (scene_idx, rgb, goal, action) in enumerate(iterator):
         rgb = rgb.to(config['device'])
         goal = goal.to(config['device'])
         action = action.to(config['device'])
@@ -73,6 +76,9 @@ def train_or_eval(net, data, optim, is_train, config):
             wandb.run.summary['step'] += 1
 
         losses.append(loss_mean.item())
+        for s in scene_idx.long().unique():
+            scene_correct[s] += (action[scene_idx==s] == _action[scene_idx==s].argmax(dim=1)).sum().item()
+            scene_total[s] += (scene_idx==s).sum().item()
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
@@ -83,7 +89,11 @@ def train_or_eval(net, data, optim, is_train, config):
 
         tick = time.time()
 
-    wandb.log({f'{desc}/accuracy': correct/total}, step=wandb.run.summary['step'])
+    metrics = {f'{desc}/accuracy': correct/total}
+    for idx, scene in enumerate(GIBSON_IDX2NAME):
+        metrics[f'{desc}/{scene}_accuracy'] = scene_correct[idx] / max(scene_total[idx], 1)
+    wandb.log(metrics, step=wandb.run.summary['step'])
+
     return np.mean(losses)
 
 
@@ -125,6 +135,8 @@ def main(config, parsed):
     else:
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
+
+        wandb.run.summary['best_accuracy'] = 0
         wandb.run.summary['best_epoch'] = 0
 
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, parsed.max_epoch+1), desc='epoch'):
@@ -135,9 +147,10 @@ def main(config, parsed):
             loss_val = train_or_eval(net, data_val, None, False, config)
 
         wandb.log({'train/loss_epoch': loss_train, 'val/loss_epoch': loss_val})
-        if 'best_val_loss' in wandb.run.summary.keys() and loss_val < wandb.run.summary['best_val_loss']:
-            wandb.run.summary['best_val_loss'] = loss_val
+        if 'best_accuracy' in wandb.run.summary.keys() and wandb.run.summary['val/accuracy'] > wandb.run.summary['best_accuracy']:
+            wandb.run.summary['best_accuracy'] = wandb.run.summary['val/accuracy']
             wandb.run.summary['best_epoch'] = epoch
+            torch.save(net.state_dict(), Path(wandb.run.dir) / 'model_best.t7')
 
         checkpoint_project(net, optim, scheduler, config)
         if epoch % 25 == 0:

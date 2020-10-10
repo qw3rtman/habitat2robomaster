@@ -10,11 +10,11 @@ for batch_size in [16, 32]:
             for lr in [2e-4, 2e-5]:
                 for weight_decay in [3.8e-7]:
                     job = f"""ulimit -n 4096; PYTHONHASHSEED=0 python -m again.train_il \\
-    --description {unique}-rgb-single_encoder-sl-aux-v2SMALL \\
+    --description {unique}-rgb-single_encoder-sl-aux-v3 \\
     --max_epoch 2000 \\
     --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
-    --dataset_dir /scratch/cluster/nimit/data/habitat/replica-apartment_0 \\
-    --dataset_size 0.1 \\
+    --dataset_dir /scratch/cluster/nimit/data/habitat/gibson \\
+    --dataset_size 1.0 \\
     --aux_model /scratch/cluster/nimit/wandb/run-20201008_041056-3450328272347932749/model_010.t7 \\
     --resnet_model {resnet_model} \\
     --hidden_size {hidden_size} \\

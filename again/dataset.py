@@ -116,31 +116,32 @@ class HabitatDataset(torch.utils.data.Dataset):
         self.episode_dir = episode_dir
         self.scene_idx = GIBSON_NAME2IDX[episode_dir.parents[1].stem.split('-')[1]] # dataset-scene
 
+        self.goal_fn = goal_fn
+
         """ dagger episodes
         length = np.argmax(x[:,0]==0)
         self.actions = torch.LongTensor(x[:length, 0]) # cut before STOP
         """
-        #self.actions = torch.LongTensor(x[:-1, 0])
-
-        #self.r, self.t = x[:-1, 1], x[:-1, 2]
-        #self.goal = goal_fn(self.r, self.t)
-        #self.goal_fn = goal_fn
 
     def __len__(self):
         # TODO: remove STOP when training policy, but
         #       keep for aux tasks, ~100k extra samples
-        return int(self.episode_dir.stem.split('-')[1])
+        return int(self.episode_dir.stem.split('-')[1])-1 # -1
 
     def __getitem__(self, idx):
-        if not hasattr(self, 'xy'):
+        if not hasattr(self, 'actions'):
+        #if not hasattr(self, 'xy'):
             with open(self.episode_dir / 'episode.csv', 'r') as f:
                 x = np.genfromtxt(f.readlines()[1:], delimiter=',', dtype=np.float32).reshape(-1, 10)
-            self.xy = torch.FloatTensor(x[:,[3,5]]) # -1
+            self.xy = torch.FloatTensor(x[:-1,[3,5]]) # -1
+            self.actions = torch.LongTensor(x[:-1, 0]) # -1
+            self.r, self.t = x[:-1, 1], x[:-1, 2]
+            self.goal = self.goal_fn(self.r, self.t)
 
         target = np.array(Image.open(self.episode_dir/f'rgb_{idx:03}.png'))
-        #return self.scene, target, self.goal[idx], self.actions[idx]-1, self.xy[idx]
-        return self.scene_idx, target, self.xy[idx]
-        #return self.scene_idx, target, 0, 0, self.xy[idx]
+
+        return self.scene_idx, target, self.goal[idx], self.actions[idx]-1
+        #return self.scene_idx, target, self.xy[idx]
         """
         if not hasattr(self, 'target_f'):
             self.target_f = zarr.open(str(self.episode_dir / 'rgb'), mode='r')
