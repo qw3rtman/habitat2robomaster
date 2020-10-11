@@ -75,8 +75,10 @@ def train_or_eval(net, data, optim, is_train, config):
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
-        for scene, scene_loss in scene_losses.items():
-            metrics[f'{scene}_loss'] = np.mean(scene_loss)
+
+        if i % 50 == 0:
+            for scene, scene_loss in scene_losses.items():
+                metrics[f'{scene}_loss'] = np.mean(scene_loss)
 
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
@@ -115,6 +117,8 @@ def main(config):
     else:
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
+
+        wandb.run.summary['best_loss'] = 100
         wandb.run.summary['best_epoch'] = 0
 
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, config['max_epoch']+1), desc='epoch'):
@@ -125,12 +129,13 @@ def main(config):
             loss_val = train_or_eval(net, data_val, None, False, config)
 
         wandb.log({'train/loss_epoch': loss_train, 'val/loss_epoch': loss_val})
-        if 'best_val_loss' in wandb.run.summary.keys() and loss_val < wandb.run.summary['best_val_loss']:
-            wandb.run.summary['best_val_loss'] = loss_val
+        if 'best_loss' in wandb.run.summary.keys() and loss_val < wandb.run.summary['best_loss']:
+            wandb.run.summary['best_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
+            torch.save(net.state_dict(), Path(wandb.run.dir) / 'model_best.t7')
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 25 == 0:
+        if epoch % 50 == 0: # 24 MB for 256, 32 MB for 512
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 
@@ -172,6 +177,7 @@ if __name__ == '__main__':
             'model_args': {
                 'resnet_model': parsed.resnet_model,
                 'hidden_size': parsed.hidden_size,
+                'localization_dim': 4,
                 'scene_bias': parsed.scene_bias
             },
 

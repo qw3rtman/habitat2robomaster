@@ -143,8 +143,9 @@ class TemporalDistance(nn.Module):
         ], dim=1)))
 
 class SceneLocalization(nn.Module):
-    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, scene_bias=True, **kwargs):
+    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, localization_dim=4, scene_bias=True, **kwargs):
         super().__init__()
+        self.localization_dim = localization_dim
 
         observation_spaces = spaces.Dict({
             'rgb': spaces.Box(low=0, high=255, shape=(HEIGHT, WIDTH, 3), dtype=np.uint8)
@@ -169,14 +170,14 @@ class SceneLocalization(nn.Module):
             nn.ReLU(True))
 
         self.scene_fc = nn.ModuleDict({
-            name: nn.Linear(hidden_size//2, 2, bias=scene_bias) for name in GIBSON_IDX2NAME
+            name: nn.Linear(hidden_size//2, localization_dim, bias=scene_bias) for name in GIBSON_IDX2NAME
         })
 
     def forward(self, rgb, scene_idx):
         visual_features = self.visual_fc1(self.R1({'rgb': rgb}))
         shared_features = self.localization_fc(visual_features)
 
-        out = torch.empty((rgb.shape[0], 2)).cuda()
+        out = torch.empty((rgb.shape[0], self.localization_dim)).cuda()
         for s in scene_idx.long().unique():
             extract = self.scene_fc[GIBSON_IDX2NAME[s]]
             out[scene_idx==s] = extract(shared_features[scene_idx==s])

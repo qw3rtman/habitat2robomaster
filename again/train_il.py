@@ -82,7 +82,7 @@ def train_or_eval(net, data, optim, is_train, config):
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
-        #if i % 50 == 0:
+        #if i % == 0:
             #metrics['images'] = _log_visuals(rgb, goal, action, _action.argmax(dim=1), loss)
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
@@ -91,7 +91,8 @@ def train_or_eval(net, data, optim, is_train, config):
 
     metrics = {f'{desc}/accuracy': correct/total}
     for idx, scene in enumerate(GIBSON_IDX2NAME):
-        metrics[f'{desc}/{scene}_accuracy'] = scene_correct[idx] / max(scene_total[idx], 1)
+        if scene_total[idx] > 0:
+            metrics[f'{desc}/{scene}_accuracy'] = scene_correct[idx]/scene_total[idx]
     wandb.log(metrics, step=wandb.run.summary['step'])
 
     return np.mean(losses)
@@ -153,7 +154,7 @@ def main(config, parsed):
             torch.save(net.state_dict(), Path(wandb.run.dir) / 'model_best.t7')
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 25 == 0:
+        if epoch % 100 == 0: # 24.5 MB for 256, 34 MB for 512
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 

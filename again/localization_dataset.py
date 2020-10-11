@@ -54,9 +54,9 @@ class LocalizationDataset(torch.utils.data.Dataset):
             with open(self.episode_dir / 'episode.csv', 'r') as f:
                 x = np.genfromtxt(f.readlines()[1:], delimiter=',', dtype=np.float32).reshape(-1, 10)
             xy = x[:,[3,5]]
-            orientation = np.arcsin(
+            orientation = np.arcsin(np.clip(
                 -2*((x[:,7]*x[:,9])-(x[:,6]*x[:,8]))
-            ).reshape(-1, 1)
+            , -1.0, 1.0)).reshape(-1, 1)
 
             self.localization = torch.FloatTensor(np.concatenate(
                 [xy, np.sin(orientation), np.cos(orientation)], axis=1
