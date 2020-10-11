@@ -113,7 +113,7 @@ def make_onehot(semantic, scene=None):
 class PointGoalDataset(torch.utils.data.Dataset):
     def __init__(self, episode_dir, goal_fn):
         self.episode_dir = episode_dir
-        self.scene_idx = GIBSON_NAME2IDX[episode_dir.parents[1].stem.split('-')[1]] # dataset-scene
+        self.scene_idx = GIBSON_NAME2IDX.get(episode_dir.parents[1].stem.split('-')[1], -1) # dataset-scene
 
         self.goal_fn = goal_fn
 

@@ -143,7 +143,7 @@ class TemporalDistance(nn.Module):
         ], dim=1)))
 
 class SceneLocalization(nn.Module):
-    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, localization_dim=4, scene_bias=True, **kwargs):
+    def __init__(self, resnet_model='resnet50', resnet_baseplanes=32, hidden_size=512, localization_dim=2, scene_bias=True, **kwargs):
         super().__init__()
         self.localization_dim = localization_dim
 

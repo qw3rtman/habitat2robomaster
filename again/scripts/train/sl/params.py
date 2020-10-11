@@ -8,7 +8,7 @@ unique = datetime.now().strftime("%-m.%d")
 for scene_bias in ['--scene_bias', '']:
     for dataset_size in [1.0]:
         for batch_size in [128, 256]: # can use big batch sizes here, not training a policy
-            for hidden_size in [256, 512]:
+            for hidden_size in [64]:
                 for resnet_model in ['resnet18']:
                     for lr in [2e-4]:
                         for weight_decay in [3.8e-7]:
