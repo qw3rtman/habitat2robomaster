@@ -167,10 +167,19 @@ class SceneLocalization(nn.Module):
 
         self.localization_fc = nn.Sequential(
             nn.Linear(hidden_size, hidden_size//2),
-            nn.ReLU(True))
+            nn.ReLU(True),
+            nn.Linear(hidden_size//2, hidden_size//4),
+            nn.ReLU(True),
+            nn.Linear(hidden_size//4, hidden_size//8), # representation we learn
+            nn.ReLU(True),
+            nn.Linear(hidden_size//8, localization_dim))
 
-        self.scene_fc = nn.ModuleDict({
-            name: nn.Linear(hidden_size//2, localization_dim, bias=scene_bias) for name in GIBSON_IDX2NAME
+        self.scene_xy_fc = nn.ModuleDict({
+            name: nn.Linear(2, 2, bias=True) for name in GIBSON_IDX2NAME
+        })
+
+        self.scene_t_fc= nn.ModuleDict({
+            name: nn.Linear(2, 2, bias=False) for name in GIBSON_IDX2NAME
         })
 
     def forward(self, rgb, scene_idx):
@@ -179,8 +188,12 @@ class SceneLocalization(nn.Module):
 
         out = torch.empty((rgb.shape[0], self.localization_dim)).cuda()
         for s in scene_idx.long().unique():
-            extract = self.scene_fc[GIBSON_IDX2NAME[s]]
-            out[scene_idx==s] = extract(shared_features[scene_idx==s])
+            xy_affine = self.scene_xy_fc[GIBSON_IDX2NAME[s]]
+            t_rotate = self.scene_t_fc[GIBSON_IDX2NAME[s]]
+            out[scene_idx==s] = torch.cat([
+                xy_affine(shared_features[scene_idx==s,:2]).reshape(-1, 2),
+                t_rotate(shared_features[scene_idx==s,2:]).reshape(-1, 2)
+            ], dim=1)
 
         return out
 
@@ -190,18 +203,21 @@ class PointGoalPolicyAux(nn.Module): # Auxiliary task
 
         self.aux = aux_model
 
-        self.goal_fc = nn.Linear(goal_dim, hidden_size//2)
+        self.goal_fc = nn.Linear(goal_dim, hidden_size//8)
 
         self.concat_fc = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size//4, hidden_size//4),
             nn.ReLU(True),
-            nn.Linear(hidden_size, hidden_size//2))
+            nn.Linear(hidden_size//4, hidden_size//8))
 
-        self.action_distribution = CategoricalNet(hidden_size//2, action_dim)
+        self.action_distribution = CategoricalNet(hidden_size//8, action_dim)
 
     def forward(self, rgb, goal):
+        visual_features = self.aux.visual_fc1(self.aux.R1({'rgb': rgb}))
+        shared_features = self.aux.localization_fc[:-2](visual_features)
+
         features = torch.cat([
-            self.aux.localization_fc(self.aux.visual_fc1(self.aux.R1({'rgb': rgb}))),
+            shared_features,
             self.goal_fc(goal)
         ], dim=1)
 
