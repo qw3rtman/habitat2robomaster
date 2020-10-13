@@ -119,8 +119,10 @@ def main(config, parsed):
     aux_net.eval() # NOTE: does this freeze the weights?
 
     net = PointGoalPolicyAux(aux_net, **config['model_args']).to(config['device'])
+    """
     for param in net.aux.parameters():
         param.requires_grad = False
+    """
 
     data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
@@ -154,7 +156,7 @@ def main(config, parsed):
             torch.save(net.state_dict(), Path(wandb.run.dir) / 'model_best.t7')
 
         checkpoint_project(net, optim, scheduler, config)
-        if epoch % 100 == 0: # 24.5 MB for 256, 34 MB for 512
+        if epoch % 10 == 0: # 24.5 MB for 256, 34 MB for 512
             torch.save(net.state_dict(), Path(wandb.run.dir) / ('model_%03d.t7' % epoch))
 
 

@@ -166,13 +166,9 @@ class SceneLocalization(nn.Module):
             nn.ReLU(True))
 
         self.localization_fc = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size//2),
+            nn.Linear(hidden_size, hidden_size),
             nn.ReLU(True),
-            nn.Linear(hidden_size//2, hidden_size//4),
-            nn.ReLU(True),
-            nn.Linear(hidden_size//4, hidden_size//8), # representation we learn
-            nn.ReLU(True),
-            nn.Linear(hidden_size//8, localization_dim))
+            nn.Linear(hidden_size, localization_dim))
 
         self.scene_xy_fc = nn.ModuleDict({
             name: nn.Linear(2, 2, bias=True) for name in GIBSON_IDX2NAME
@@ -203,18 +199,18 @@ class PointGoalPolicyAux(nn.Module): # Auxiliary task
 
         self.aux = aux_model
 
-        self.goal_fc = nn.Linear(goal_dim, hidden_size//8)
+        self.goal_fc = nn.Linear(goal_dim, hidden_size)
 
         self.concat_fc = nn.Sequential(
-            nn.Linear(hidden_size//4, hidden_size//4),
+            nn.Linear(2*hidden_size, hidden_size),
             nn.ReLU(True),
-            nn.Linear(hidden_size//4, hidden_size//8))
+            nn.Linear(hidden_size, hidden_size//2))
 
-        self.action_distribution = CategoricalNet(hidden_size//8, action_dim)
+        self.action_distribution = CategoricalNet(hidden_size//2, action_dim)
 
     def forward(self, rgb, goal):
         visual_features = self.aux.visual_fc1(self.aux.R1({'rgb': rgb}))
-        shared_features = self.aux.localization_fc[:-2](visual_features)
+        shared_features = self.aux.localization_fc[:1](visual_features)
 
         features = torch.cat([
             shared_features,
