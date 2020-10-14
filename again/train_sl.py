@@ -17,29 +17,6 @@ from .const import GIBSON_IDX2NAME
 
 import wandb
 
-ACTIONS = ['F', 'L', 'R']
-
-def _log_visuals(t1, t2, action, _action, loss):
-    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 12)
-    images = list()
-
-    rgb = torch.cat([t1, t2], dim=1)
-    for i in range(min(rgb.shape[0], 64)):
-        canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(-1, 384, 3))
-        draw = ImageDraw.Draw(canvas)
-
-        loss_i = loss[i].sum()
-        draw.rectangle((0, 0, 384, 20), fill='black')
-        draw.text((5, 5), 'Action: <{}> Pred: <{}>'.format(ACTIONS[action[i]], ACTIONS[_action[i]]))
-        images.append((loss_i, torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
-
-    images.sort(key=lambda x: x[0], reverse=True)
-
-    result = torchvision.utils.make_grid([x[1] for x in images[:32]], nrow=4)
-    result = [wandb.Image(result.numpy().transpose(1, 2, 0))]
-
-    return result
-
 
 def train_or_eval(net, data, optim, is_train, config):
     if is_train:
@@ -75,7 +52,6 @@ def train_or_eval(net, data, optim, is_train, config):
 
         metrics = {'loss': loss_mean.item(),
                    'images_per_second': rgb.shape[0] / (time.time() - tick)}
-
         if i % 50 == 0:
             for scene, scene_loss in scene_losses.items():
                 metrics[f'{scene}_loss'] = np.mean(scene_loss)

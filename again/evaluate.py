@@ -42,6 +42,7 @@ if __name__ == '__main__':
     #aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
     aux_net = SceneLocalization(**config['aux_model_args']['value']).to(device)
     #aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
+    aux_net.eval()
 
     net = PointGoalPolicyAux(aux_net, **config['model_args']['value']).to(device)
     net.load_state_dict(torch.load(parsed.model, map_location=device))

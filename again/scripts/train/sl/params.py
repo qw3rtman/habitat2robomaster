@@ -13,7 +13,7 @@ for scene_bias in ['--scene_bias']:#, '']:
                     for lr in [2e-4]:
                         for weight_decay in [3.8e-7]:
                             job = f"""ulimit -n 4096; PYTHONHASHSEED=0 python -m again.train_sl \\
-        --description {unique}-gibson-rgb-single_encoder-v15 \\
+        --description {unique}-gibson-rgb-single_encoder-v16 \\
         --max_epoch 2000 \\
         --checkpoint_dir /scratch/cluster/nimit/checkpoints \\
         --dataset_dir /scratch/cluster/nimit/data/habitat/gibson \\

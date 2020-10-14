@@ -12,32 +12,10 @@ import torchvision
 from PIL import Image, ImageDraw, ImageFont
 
 from .model import PointGoalPolicy, InverseDynamics, TemporalDistance, PointGoalPolicyAux, SceneLocalization
-from .pointgoal_dataset import get_dataset
+from .joint_dataset import get_dataset
 from .const import GIBSON_IDX2NAME
 
 import wandb
-
-ACTIONS = ['F', 'L', 'R']
-
-def _log_visuals(rgb, goal, action, _action, loss):
-    font = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoMono-Regular.ttf', 12)
-    images = list()
-
-    goal = goal.cpu().numpy()
-    r, t = goal[:,0], -np.arccos(goal[:,1])
-    for i in range(min(rgb.shape[0], 64)):
-        canvas = Image.fromarray(np.uint8(rgb[i].cpu()).reshape(160, 384, 3))
-        draw = ImageDraw.Draw(canvas)
-
-        draw.rectangle((0, 0, 384, 20), fill='black')
-        draw.text((5, 5), f'Goal: ({r[i]:.2f}, {t[i]:.2f}), Expert: <{ACTIONS[action[i]]}>, Pred: <{ACTIONS[_action[i]]}>', font=font)
-        images.append((loss[i].sum(), torch.ByteTensor(np.uint8(canvas).transpose(2, 0, 1))))
-
-    result = torchvision.utils.make_grid([x[1] for x in \
-            sorted(images, key=lambda x: x[0], reverse=True)[:32]], nrow=4)
-    result = [wandb.Image(result.numpy().transpose(1, 2, 0))]
-
-    return result
 
 
 def train_or_eval(net, data, optim, is_train, config):
@@ -49,21 +27,30 @@ def train_or_eval(net, data, optim, is_train, config):
         net.eval()
 
     losses = list()
-    scene_correct, scene_total = np.zeros(len(GIBSON_IDX2NAME)), np.zeros(len(GIBSON_IDX2NAME))
-    criterion = torch.nn.CrossEntropyLoss(reduction='none')
+
+    sl_scene_loss = defaultdict(list)
+    sl_criterion = torch.nn.MSELoss(reduction='none')
+
+    il_scene_correct = np.zeros(len(GIBSON_IDX2NAME))
+    il_scene_total = np.zeros(len(GIBSON_IDX2NAME))
+    il_scene_loss = defaultdict(list)
+    il_criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
     correct, total = 0, 0
     tick = time.time()
     iterator = tqdm.tqdm(data, desc=desc, total=len(data), position=1, leave=None)
-    for i, (scene_idx, rgb, goal, action) in enumerate(iterator):
+    for i, (scene_idx, rgb, localization, goal, action) in enumerate(iterator):
         rgb = rgb.to(config['device'])
+        localization = localization.to(config['device'])
         goal = goal.to(config['device'])
         action = action.to(config['device'])
 
-        _action = net(rgb, goal).logits
+        sl_loss = sl_criterion(net.aux(rgb, scene_idx), localization)
+        loss_mean = sl_loss.mean()
 
-        loss = criterion(_action, action)
-        loss_mean = loss.mean()
+        _action = net(rgb, goal).logits
+        il_loss = il_criterion(_action, action)
+        loss_mean += il_loss.mean()
 
         correct += (action == _action.argmax(dim=1)).sum().item()
         total += rgb.shape[0]
@@ -77,22 +64,35 @@ def train_or_eval(net, data, optim, is_train, config):
 
         losses.append(loss_mean.item())
         for s in scene_idx.long().unique():
-            scene_correct[s] += (action[scene_idx==s] == _action[scene_idx==s].argmax(dim=1)).sum().item()
-            scene_total[s] += (scene_idx==s).sum().item()
+            sl_scene_loss[s].append(sl_loss[scene_idx==s].mean().item())
 
-        metrics = {'loss': loss_mean.item(),
-                   'images_per_second': rgb.shape[0] / (time.time() - tick)}
-        #if i % == 0:
-            #metrics['images'] = _log_visuals(rgb, goal, action, _action.argmax(dim=1), loss)
+            il_scene_loss[s].append(il_loss[scene_idx==s].mean().item())
+            il_scene_correct[s] += (action[scene_idx==s] == _action[scene_idx==s].argmax(dim=1)).sum().item()
+            il_scene_total[s] += (scene_idx==s).sum().item()
+
+        metrics = {
+            'loss': loss_mean.item(),
+               'sl_loss': sl_loss.mean().item(),
+               'il_loss': il_loss.mean().item(),
+               'images_per_second': rgb.shape[0] / (time.time() - tick)
+        }
+
+        if i % 50 == 0:
+            for idx, name in enumerate(GIBSON_IDX2NAME):
+                if len(sl_scene_loss[idx]) > 0:
+                    metrics[f'{desc}/{name}_sl_loss'] = np.mean(sl_scene_loss)
+                    metrics[f'{desc}/{name}_il_loss'] = np.mean(il_scene_loss)
+
         wandb.log({('%s/%s' % (desc, k)): v for k, v in metrics.items()},
                 step=wandb.run.summary['step'])
 
         tick = time.time()
 
     metrics = {f'{desc}/accuracy': correct/total}
-    for idx, scene in enumerate(GIBSON_IDX2NAME):
-        if scene_total[idx] > 0:
-            metrics[f'{desc}/{scene}_accuracy'] = scene_correct[idx]/scene_total[idx]
+    for idx, name in enumerate(GIBSON_IDX2NAME):
+        if il_scene_total[idx] > 0:
+            metrics[f'{desc}/{name}_accuracy'] = il_scene_correct[idx] / il_scene_total[idx]
+
     wandb.log(metrics, step=wandb.run.summary['step'])
 
     return np.mean(losses)
@@ -111,18 +111,8 @@ def checkpoint_project(net, optim, scheduler, config):
 
 
 def main(config, parsed):
-    # NOTE: loading aux task
-    #aux_net = InverseDynamics(**config['aux_model_args']).to(config['device'])
-    #aux_net = TemporalDistance(**config['aux_model_args']).to(config['device'])
-    aux_net = SceneLocalization(**config['aux_model_args']).to(config['device'])
-    aux_net.load_state_dict(torch.load(config['aux_model'], map_location=config['device']))
-
+    aux_net = SceneLocalization(**config['model_args']).to(config['device'])
     net = PointGoalPolicyAux(aux_net, **config['model_args']).to(config['device'])
-    """
-    aux_net.eval()
-    for param in net.aux.parameters():
-        param.requires_grad = False
-    """
 
     data_train, data_val = get_dataset(**config['data_args'])
     optim = torch.optim.Adam(net.parameters(), **config['optimizer_args'])
@@ -139,7 +129,7 @@ def main(config, parsed):
         wandb.run.summary['step'] = 0
         wandb.run.summary['epoch'] = 0
 
-        wandb.run.summary['best_accuracy'] = 0
+        wandb.run.summary['best_loss'] = 100
         wandb.run.summary['best_epoch'] = 0
 
     for epoch in tqdm.tqdm(range(wandb.run.summary['epoch']+1, parsed.max_epoch+1), desc='epoch'):
@@ -150,8 +140,8 @@ def main(config, parsed):
             loss_val = train_or_eval(net, data_val, None, False, config)
 
         wandb.log({'train/loss_epoch': loss_train, 'val/loss_epoch': loss_val})
-        if 'best_accuracy' in wandb.run.summary.keys() and wandb.run.summary['val/accuracy'] > wandb.run.summary['best_accuracy']:
-            wandb.run.summary['best_accuracy'] = wandb.run.summary['val/accuracy']
+        if loss_val < wandb.run.summary['best_loss']:
+            wandb.run.summary['best_loss'] = loss_val
             wandb.run.summary['best_epoch'] = epoch
             torch.save(net.state_dict(), Path(wandb.run.dir) / 'model_best.t7')
 
@@ -172,6 +162,7 @@ if __name__ == '__main__':
     # Model args.
     parser.add_argument('--resnet_model', default='resnet50')
     parser.add_argument('--hidden_size', type=int, required=True)
+    parser.add_argument('--scene_bias', action='store_true', default=False)
 
     # Data args.
     parser.add_argument('--dataset_dir', type=Path, required=True)
@@ -185,7 +176,7 @@ if __name__ == '__main__':
     parsed = parser.parse_args()
 
     keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'description']
-    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys)
+    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys) + '_jointly' + ('_no-bias' if not parsed.scene_bias else '')
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -197,12 +188,11 @@ if __name__ == '__main__':
 
             'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 
-            'aux_model': parsed.aux_model,
-            'aux_model_args': yaml.load((parsed.aux_model.parent / 'config.yaml').read_text())['model_args']['value'],
-
             'model_args': {
                 'resnet_model': parsed.resnet_model,
                 'hidden_size': parsed.hidden_size,
+                'localization_dim': 4,
+                'scene_bias': parsed.scene_bias,
                 'action_dim': 3,
                 'goal_dim': 3
                 },
