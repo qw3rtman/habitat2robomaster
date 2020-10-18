@@ -10,9 +10,7 @@ from itertools import repeat
 import json
 import time
 
-from .const import GIBSON_NAME2IDX
-
-HEIGHT, WIDTH = 180, 320
+from .const import GIBSON_NAME2IDX, HEIGHT, WIDTH
 
 def polar1(r, t):
     return torch.FloatTensor([r, np.cos(-t), np.sin(-t)]).T
