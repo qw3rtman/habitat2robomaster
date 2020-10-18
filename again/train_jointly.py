@@ -46,22 +46,26 @@ def train_or_eval(net, data, optim, is_train, config):
         action = action.to(config['device'])
 
         sl_loss = sl_criterion(net.aux(rgb, scene_idx), localization)
-        loss_mean = sl_loss.mean()
+
+        if is_train:
+            sl_loss.mean().backward()
+            optim.step()
+            optim.zero_grad()
 
         _action = net(rgb, goal).logits
         il_loss = il_criterion(_action, action)
-        loss_mean += il_loss.mean()
 
         correct += (action == _action.argmax(dim=1)).sum().item()
         total += rgb.shape[0]
 
         if is_train:
-            loss_mean.backward()
+            il_loss.mean().backward()
             optim.step()
             optim.zero_grad()
 
             wandb.run.summary['step'] += 1
 
+        loss_mean = sl_loss.mean() + il_loss.mean()
         losses.append(loss_mean.item())
         for s in scene_idx.long().unique():
             sl_scene_loss[s].append(sl_loss[scene_idx==s].mean().item())
@@ -72,9 +76,9 @@ def train_or_eval(net, data, optim, is_train, config):
 
         metrics = {
             'loss': loss_mean.item(),
-               'sl_loss': sl_loss.mean().item(),
-               'il_loss': il_loss.mean().item(),
-               'images_per_second': rgb.shape[0] / (time.time() - tick)
+            'sl_loss': sl_loss.mean().item(),
+            'il_loss': il_loss.mean().item(),
+            'images_per_second': rgb.shape[0] / (time.time() - tick)
         }
 
         if i % 50 == 0:
@@ -156,9 +160,6 @@ if __name__ == '__main__':
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--checkpoint_dir', type=Path, default='checkpoints')
 
-    # Aux model args.
-    parser.add_argument('--aux_model', type=Path, required=True)
-
     # Model args.
     parser.add_argument('--resnet_model', default='resnet50')
     parser.add_argument('--hidden_size', type=int, required=True)
@@ -175,8 +176,8 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
-    keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'description']
-    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys) + '_jointly' + ('_no-bias' if not parsed.scene_bias else '')
+    keys = ['resnet_model', 'hidden_size', 'lr', 'weight_decay', 'batch_size', 'scene_bias', 'description']
+    run_name  = '_'.join(str(getattr(parsed, x)) for x in keys)
 
     checkpoint_dir = parsed.checkpoint_dir / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)

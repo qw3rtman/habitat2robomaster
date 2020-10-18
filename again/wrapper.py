@@ -33,7 +33,8 @@ DATAPATH = {
     'office':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
     'replica':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/replica/v1/{split}/{split}.json.gz',
     'mp3d':       '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/mp3d/v1/{split}/{split}.json.gz',
-    'gibson':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz'
+    'gibson':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/gibson/v1/{split}/{split}.json.gz',
+    'apartment':     '/scratch/cluster/nimit/habitat/habitat-api/data/datasets/pointnav/apartment/v1/{split}/{split}.json.gz'
 }
 
 SPLIT = {
@@ -42,7 +43,8 @@ SPLIT = {
     'replica':   {'train': 'train', 'val': 'val', 'test': 'test'},
     'mp3d':      {'train': 'train', 'val': 'val', 'test': 'test'},
     'gibson':    {'train': 'train', 'val': 'val', 'val_mini': 'val_mini',
-                  'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'}
+                  'train_ddppo': 'train_ddppo', 'val_ddppo': 'val_ddppo'},
+    'apartment': {'train': 'train', 'val': 'val', 'test': 'test'},
 }
 
 class Rollout:

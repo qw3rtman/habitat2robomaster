@@ -40,7 +40,10 @@ if __name__ == '__main__':
 
     #aux_net = InverseDynamics(**config['aux_model_args']['value']).to(device)
     #aux_net = TemporalDistance(**config['aux_model_args']['value']).to(device)
-    aux_net = SceneLocalization(**config['aux_model_args']['value']).to(device)
+    if 'aux_model_args' in config:
+        aux_net = SceneLocalization(**config['aux_model_args']['value']).to(device)
+    else:
+        aux_net = SceneLocalization(**config['model_args']['value']).to(device)
     #aux_net.load_state_dict(torch.load(config['aux_model']['value'], map_location=device))
     aux_net.eval()
 
